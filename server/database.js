@@ -4,7 +4,6 @@ const fs = require('fs');
 
 console.log('📦 Инициализация базы данных...');
 
-// ===== СОЗДАЁМ ПАПКУ ДЛЯ ДАННЫХ =====
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -16,7 +15,7 @@ console.log('📄 Путь к БД:', dbPath);
 
 const db = new sqlite3.Database(dbPath);
 
-// ===== СОЗДАЁМ ВСЕ ТАБЛИЦЫ =====
+// ===== СОЗДАЁМ ТАБЛИЦЫ =====
 db.serialize(() => {
     // Пользователи
     db.run(`
@@ -34,7 +33,7 @@ db.serialize(() => {
         )
     `);
 
-    // Коды подтверждения
+    // Коды
     db.run(`
         CREATE TABLE IF NOT EXISTS verifications (
             phone TEXT PRIMARY KEY,
@@ -58,7 +57,7 @@ db.serialize(() => {
         )
     `);
 
-    // Участники чатов
+    // Участники
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
@@ -91,7 +90,7 @@ db.serialize(() => {
         )
     `);
 
-    // Подписчики каналов
+    // Подписчики
     db.run(`
         CREATE TABLE IF NOT EXISTS channel_subscribers (
             channel_id TEXT,
@@ -104,7 +103,7 @@ db.serialize(() => {
     console.log('✅ Все таблицы созданы');
 });
 
-// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+// ===== ФУНКЦИИ =====
 
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -133,7 +132,7 @@ function allQuery(sql, params = []) {
     });
 }
 
-// ===== КЛАСС БАЗЫ ДАННЫХ =====
+// ===== КЛАСС =====
 
 class Database {
     // ---------- ПОЛЬЗОВАТЕЛИ ----------
@@ -217,8 +216,21 @@ class Database {
         );
         
         for (const chat of chats) {
-            chat.participants = await this.getChatParticipants(chat.id);
+            // Получаем имена участников
+            const participants = await this.getChatParticipants(chat.id);
+            chat.participants = participants;
             chat.unread = await this.getUnreadCount(chat.id, userId);
+            
+            // Для приватных чатов добавляем имя собеседника
+            if (chat.type === 'private') {
+                const otherUser = participants.find(p => p.user_id !== userId);
+                if (otherUser) {
+                    const user = await this.getUserById(otherUser.user_id);
+                    chat.displayName = user ? user.name : 'Неизвестный';
+                }
+            } else {
+                chat.displayName = chat.name || 'Чат';
+            }
         }
         return chats;
     }
@@ -325,15 +337,6 @@ class Database {
             [chatId, userId]
         );
         return result ? result.count : 0;
-    }
-
-    // ---------- КАНАЛЫ ----------
-    async subscribeToChannel(channelId, userId) {
-        await runQuery(
-            `INSERT OR REPLACE INTO channel_subscribers (channel_id, user_id, subscribed_at) VALUES (?, ?, ?)`,
-            [channelId, userId, new Date().toISOString()]
-        );
-        await this.addParticipant(channelId, userId);
     }
 }
 

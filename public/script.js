@@ -119,6 +119,7 @@ function connectSocket(userId) {
     socket.on('userStatus', () => renderChats());
     
     socket.on('newMessage', (data) => {
+        console.log('📨 Новое сообщение:', data);
         if (data.chatId === currentChatId) {
             renderMessages(currentChatId);
             api.markAsRead(currentChatId, currentUser.id);
@@ -127,6 +128,7 @@ function connectSocket(userId) {
     });
     
     socket.on('chatsUpdate', (chats) => {
+        console.log('🔄 Обновление чатов:', chats);
         allChats = chats;
         renderChats();
     });
@@ -338,7 +340,6 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
             img.src = event.target.result;
             img.style.display = 'block';
             document.getElementById('settingsAvatarText').style.display = 'none';
-            // Временно сохраняем как data URL
             window.tempAvatar = event.target.result;
         };
         reader.readAsDataURL(file);
@@ -438,6 +439,7 @@ async function openChatWithUser(userId) {
 async function loadChats() {
     if (!currentUser) return;
     allChats = await api.getChats(currentUser.id);
+    console.log('📋 Загружены чаты:', allChats);
     renderChats();
 }
 
@@ -456,7 +458,8 @@ function renderChats() {
     }
 
     allChats.forEach(chat => {
-        const name = chat.name || 'Чат';
+        // Используем displayName из базы данных
+        const name = chat.displayName || chat.name || 'Чат';
         const lastMsg = chat.last_message || 'Нет сообщений';
         const time = formatTime(chat.last_message_time);
         const unread = chat.unread || 0;
@@ -506,10 +509,14 @@ function formatTime(date) {
 async function openChat(chatId) {
     currentChatId = chatId;
     const chat = allChats.find(c => c.id === chatId);
-    if (!chat) return;
+    if (!chat) {
+        console.log('❌ Чат не найден:', chatId);
+        return;
+    }
 
-    document.getElementById('chatName').textContent = chat.name || 'Чат';
-    document.getElementById('chatAvatar').textContent = chat.name ? chat.name.charAt(0).toUpperCase() : 'Ч';
+    const name = chat.displayName || chat.name || 'Чат';
+    document.getElementById('chatName').textContent = name;
+    document.getElementById('chatAvatar').textContent = name.charAt(0).toUpperCase();
     
     await renderMessages(chatId);
     document.getElementById('messageInput').disabled = false;
@@ -528,6 +535,7 @@ async function renderMessages(chatId) {
     area.innerHTML = '';
 
     const messages = await api.getMessages(chatId);
+    console.log('📨 Сообщения:', messages);
     
     if (messages.length === 0) {
         area.innerHTML = `
@@ -548,8 +556,12 @@ async function renderMessages(chatId) {
         
         let content = msg.text || '';
         if (msg.file) {
-            const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
-            content += renderFile(file);
+            try {
+                const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
+                content += renderFile(file);
+            } catch (e) {
+                console.log('Ошибка парсинга файла:', e);
+            }
         }
         
         div.innerHTML = `${content}<span class="time">${time}</span>`;
@@ -584,20 +596,27 @@ function formatFileSize(bytes) {
 }
 
 async function uploadFiles(files) {
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || !currentChatId) {
+        showToast('Выберите чат для отправки файла', 'error');
+        return;
+    }
     
     for (const file of files) {
         try {
+            showToast(`⏳ Загрузка ${file.name}...`, 'info');
             const result = await api.uploadFile(file);
             if (result.success) {
+                console.log('📤 Отправка файла:', result.file);
                 socket.emit('sendMessage', {
                     chatId: currentChatId,
                     senderId: currentUser.id,
                     text: '',
                     file: result.file
                 });
+                showToast(`✅ Файл ${file.name} отправлен!`, 'success');
             }
         } catch (error) {
+            console.error('Upload error:', error);
             showToast('Ошибка загрузки файла', 'error');
         }
     }
@@ -632,8 +651,12 @@ function toggleEmojiPanel() {
 function sendMessage() {
     const input = document.getElementById('messageInput');
     const text = input.value.trim();
-    if (!text || !currentChatId) return;
+    if (!text || !currentChatId) {
+        showToast('Введите сообщение или выберите чат', 'error');
+        return;
+    }
 
+    console.log('📤 Отправка сообщения:', { chatId: currentChatId, text });
     socket.emit('sendMessage', {
         chatId: currentChatId,
         senderId: currentUser.id,
@@ -760,7 +783,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     e.target.value = '';
 });
 
-// Закрытие модалок по клику вне
+// Закрытие модалок
 document.querySelectorAll('.modal').forEach(modal => {
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {

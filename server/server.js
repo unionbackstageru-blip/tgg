@@ -10,7 +10,6 @@ const db = require('./database');
 
 console.log('🚀 Запуск сервера...');
 
-// ===== СОЗДАЁМ ПАПКИ =====
 const publicDir = path.join(__dirname, '..', 'public');
 const uploadDir = path.join(publicDir, 'uploads');
 
@@ -26,7 +25,6 @@ const io = socketIo(server, {
     maxHttpBufferSize: 50 * 1024 * 1024
 });
 
-// ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(publicDir));
@@ -328,7 +326,7 @@ app.post('/api/contacts', async (req, res) => {
     }
 });
 
-// ПОЛУЧИТЬ ПОЛЬЗОВАТЕЛЯ
+// ПОЛУЧИТЬ ПОЛЬЗОВАТЕЛЯ ПО НОМЕРУ
 app.get('/api/users/phone/:phone', async (req, res) => {
     try {
         const user = await db.getUser(req.params.phone);
@@ -373,6 +371,7 @@ io.on('connection', (socket) => {
     
     socket.on('sendMessage', async (data) => {
         try {
+            console.log('📨 Отправка сообщения:', data);
             const { chatId, senderId, text, file } = data;
             
             const message = {
@@ -387,6 +386,7 @@ io.on('connection', (socket) => {
             await db.createMessage(message);
             
             const participants = await db.getChatParticipants(chatId);
+            console.log('👥 Участники чата:', participants);
             
             for (const p of participants) {
                 const socketId = onlineUsers.get(p.user_id);
@@ -397,7 +397,7 @@ io.on('connection', (socket) => {
                 }
             }
         } catch (error) {
-            console.error('Send message error:', error);
+            console.error('❌ Send message error:', error);
         }
     });
     
