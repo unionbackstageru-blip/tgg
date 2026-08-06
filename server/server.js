@@ -105,7 +105,6 @@ app.post('/api/upload-story', upload.single('story'), async (req, res) => {
 
 // ===== API РОУТЫ =====
 
-// Регистрация
 app.post('/api/register', async (req, res) => {
     try {
         const { name, phone, password } = req.body;
@@ -297,9 +296,8 @@ app.post('/api/update-profile', async (req, res) => {
     }
 });
 
-// ===== ДОПОЛНИТЕЛЬНЫЕ РОУТЫ =====
+// ===== ОСНОВНЫЕ РОУТЫ =====
 
-// Получить все чаты
 app.get('/api/chats/:userId', async (req, res) => {
     try {
         const chats = await db.getChats(req.params.userId);
@@ -310,7 +308,6 @@ app.get('/api/chats/:userId', async (req, res) => {
     }
 });
 
-// Получить сообщения чата
 app.get('/api/messages/:chatId', async (req, res) => {
     try {
         const messages = await db.getMessages(req.params.chatId);
@@ -321,19 +318,16 @@ app.get('/api/messages/:chatId', async (req, res) => {
     }
 });
 
-// Создать чат (группу или канал)
 app.post('/api/create-chat', async (req, res) => {
     try {
         const { name, type, createdBy, participants, description, avatar } = req.body;
         const allParticipants = [createdBy, ...(participants || [])];
         const chat = await db.createChat(allParticipants, name, type || 'group', createdBy, description, avatar || null);
         
-        // Подписываем создателя на канал
         if (type === 'channel') {
             await db.subscribeToChannel(chat.id, createdBy);
         }
         
-        // Уведомляем участников
         for (const userId of allParticipants) {
             const socketId = onlineUsers.get(userId);
             if (socketId) {
@@ -349,7 +343,6 @@ app.post('/api/create-chat', async (req, res) => {
     }
 });
 
-// Добавить контакт
 app.post('/api/contacts', async (req, res) => {
     try {
         const { userId, contactId } = req.body;
@@ -365,7 +358,6 @@ app.post('/api/contacts', async (req, res) => {
     }
 });
 
-// Поиск пользователей
 app.get('/api/search/:query', async (req, res) => {
     try {
         const users = await db.searchUsers(req.params.query);
@@ -384,7 +376,6 @@ app.get('/api/search/:query', async (req, res) => {
     }
 });
 
-// Получить пользователя по номеру
 app.get('/api/users/phone/:phone', async (req, res) => {
     try {
         const user = await db.getUser(req.params.phone);
@@ -403,7 +394,6 @@ app.get('/api/users/phone/:phone', async (req, res) => {
     }
 });
 
-// Получить пользователя по ID
 app.get('/api/users/:userId', async (req, res) => {
     try {
         const user = await db.getUserById(req.params.userId);
@@ -427,7 +417,6 @@ app.get('/api/users/:userId', async (req, res) => {
     }
 });
 
-// Отметить прочитанные
 app.post('/api/messages/read', async (req, res) => {
     try {
         const { chatId, userId } = req.body;
@@ -441,7 +430,6 @@ app.post('/api/messages/read', async (req, res) => {
 
 // ===== НОВЫЕ РОУТЫ =====
 
-// Редактировать сообщение
 app.post('/api/messages/edit', async (req, res) => {
     try {
         const { messageId, text, userId } = req.body;
@@ -457,7 +445,6 @@ app.post('/api/messages/edit', async (req, res) => {
     }
 });
 
-// Удалить сообщение
 app.post('/api/messages/delete', async (req, res) => {
     try {
         const { messageId, userId } = req.body;
@@ -473,7 +460,17 @@ app.post('/api/messages/delete', async (req, res) => {
     }
 });
 
-// Добавить реакцию
+// ===== ДОБАВЛЯЕМ НЕДОСТАЮЩИЙ РОУТ ДЛЯ РЕАКЦИЙ =====
+app.get('/api/messages/reactions/:messageId', async (req, res) => {
+    try {
+        const reactions = await db.getReactions(req.params.messageId);
+        res.json(reactions);
+    } catch (error) {
+        console.error('Get reactions error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
 app.post('/api/messages/reaction', async (req, res) => {
     try {
         const { messageId, userId, reaction } = req.body;
@@ -495,7 +492,6 @@ app.post('/api/messages/reaction', async (req, res) => {
     }
 });
 
-// Удалить реакцию
 app.post('/api/messages/reaction/remove', async (req, res) => {
     try {
         const { messageId, userId } = req.body;
@@ -507,7 +503,6 @@ app.post('/api/messages/reaction/remove', async (req, res) => {
     }
 });
 
-// Закрепить сообщение
 app.post('/api/messages/pin', async (req, res) => {
     try {
         const { chatId, messageId } = req.body;
@@ -519,7 +514,6 @@ app.post('/api/messages/pin', async (req, res) => {
     }
 });
 
-// Открепить сообщение
 app.post('/api/messages/unpin', async (req, res) => {
     try {
         const { chatId } = req.body;
@@ -531,7 +525,6 @@ app.post('/api/messages/unpin', async (req, res) => {
     }
 });
 
-// Получить истории
 app.get('/api/stories/:userId', async (req, res) => {
     try {
         const stories = await db.getStoriesForUser(req.params.userId);
@@ -542,7 +535,6 @@ app.get('/api/stories/:userId', async (req, res) => {
     }
 });
 
-// Просмотреть историю
 app.post('/api/stories/view', async (req, res) => {
     try {
         const { storyId, userId } = req.body;
@@ -554,7 +546,6 @@ app.post('/api/stories/view', async (req, res) => {
     }
 });
 
-// Получить звонки
 app.get('/api/calls/:userId', async (req, res) => {
     try {
         const calls = await db.getCalls(req.params.userId);
@@ -565,7 +556,6 @@ app.get('/api/calls/:userId', async (req, res) => {
     }
 });
 
-// Блокировка пользователя
 app.post('/api/block', async (req, res) => {
     try {
         const { userId, blockId } = req.body;
@@ -577,7 +567,6 @@ app.post('/api/block', async (req, res) => {
     }
 });
 
-// Разблокировка пользователя
 app.post('/api/unblock', async (req, res) => {
     try {
         const { userId, blockId } = req.body;
@@ -589,7 +578,6 @@ app.post('/api/unblock', async (req, res) => {
     }
 });
 
-// Настройки чата
 app.post('/api/chat/settings', async (req, res) => {
     try {
         const { chatId, wallpaper, autoDelete } = req.body;
@@ -602,7 +590,6 @@ app.post('/api/chat/settings', async (req, res) => {
     }
 });
 
-// Черновик
 app.get('/api/drafts/:chatId/:userId', async (req, res) => {
     try {
         const draft = await db.getDraft(req.params.chatId, req.params.userId);
@@ -676,7 +663,15 @@ io.on('connection', (socket) => {
                         await db.markMessageAsDelivered(message.id);
                     }
                     io.to(socketId).emit('newMessage', { message, chatId, senderId });
-                    const chats = await db.getChats(p.user_id);
+                }
+            }
+            
+            // Обновляем чаты для всех участников (только 1 раз)
+            const uniqueUsers = [...new Set(participants.map(p => p.user_id))];
+            for (const userId of uniqueUsers) {
+                const socketId = onlineUsers.get(userId);
+                if (socketId) {
+                    const chats = await db.getChats(userId);
                     io.to(socketId).emit('chatsUpdate', chats);
                 }
             }

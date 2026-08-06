@@ -157,6 +157,11 @@ const api = {
         });
         return res.json();
     },
+    // ===== ДОБАВЛЯЕМ НЕДОСТАЮЩИЙ МЕТОД =====
+    async getReactions(messageId) {
+        const res = await fetch(`${API_URL}/api/messages/reactions/${messageId}`);
+        return res.json();
+    },
     async pinMessage(chatId, messageId) {
         await fetch(`${API_URL}/api/messages/pin`, {
             method: 'POST',
@@ -338,8 +343,20 @@ function connectSocket(userId) {
         }
     });
     
+    // ===== ИСПРАВЛЕННАЯ ОБРАБОТКА НОВЫХ СООБЩЕНИЙ (БЕЗ ДУБЛЕЙ) =====
+    let lastMessageId = null;
+    
     socket.on('newMessage', (data) => {
         console.log('📨 Новое сообщение:', data);
+        
+        // Проверяем дубликат
+        if (lastMessageId === data.message.id) {
+            console.log('⚠️ Дубликат сообщения, пропускаем');
+            return;
+        }
+        lastMessageId = data.message.id;
+        
+        // Обновляем сообщения в текущем чате
         if (data.chatId === currentChatId) {
             renderMessages(currentChatId);
             api.markAsRead(currentChatId, currentUser.id);
@@ -366,6 +383,12 @@ function connectSocket(userId) {
         console.log('🔄 Обновление чатов:', chats);
         allChats = chats;
         renderChats();
+    });
+    
+    socket.on('reactionUpdate', (data) => {
+        if (data.chatId === currentChatId) {
+            loadReactions(data.messageId);
+        }
     });
 }
 
@@ -777,12 +800,9 @@ async function renderMessages(chatId) {
         return;
     }
 
-    let lastSender = null;
-    
-    messages.forEach((msg, index) => {
+    messages.forEach((msg) => {
         const div = document.createElement('div');
         const isSent = msg.sender_id === currentUser.id;
-        const showAvatar = !isSent && (index === 0 || messages[index - 1].sender_id !== msg.sender_id);
         
         div.className = `message ${isSent ? 'sent' : 'received'}`;
         div.dataset.messageId = msg.id;
@@ -841,7 +861,7 @@ async function renderMessages(chatId) {
             content += `
                 <div class="voice-message">
                     <button class="voice-play" onclick="playVoice(this, '${msg.file}')"><i class="fas fa-play"></i></button>
-                    <div class="voice-waveform" id="waveform-${msg.id}"></div>
+                    <div class="voice-waveform"></div>
                     <span class="voice-duration-text">${formatDuration(msg.voice_duration)}</span>
                 </div>
             `;
@@ -901,7 +921,7 @@ async function renderMessages(chatId) {
 
 async function loadReactions(messageId) {
     try {
-        const reactions = await api.getReactions ? await api.getReactions(messageId) : [];
+        const reactions = await api.getReactions(messageId);
         const container = document.getElementById('reactions-' + messageId);
         if (!container) return;
         
@@ -921,17 +941,19 @@ async function loadReactions(messageId) {
             span.onclick = () => toggleReaction(messageId, reaction);
             container.appendChild(span);
         });
-    } catch (e) {}
+    } catch (e) {
+        console.log('Ошибка загрузки реакций:', e);
+    }
 }
 
 async function toggleReaction(messageId, reaction) {
     if (!currentUser) return;
-    // Проверяем, есть ли уже реакция от пользователя
     const container = document.getElementById('reactions-' + messageId);
     if (!container) return;
     
+    // Проверяем, есть ли уже реакция от пользователя
     const existing = container.querySelector(`.reaction`);
-    if (existing) {
+    if (existing && existing.textContent.includes(reaction)) {
         await api.removeReaction(messageId, currentUser.id);
     } else {
         await api.addReaction(messageId, currentUser.id, reaction);
@@ -1097,7 +1119,6 @@ function stopRecording() {
         clearInterval(recordingTimer);
         document.getElementById('voiceRecording').style.display = 'none';
         document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-microphone"></i>';
-        // Останавливаем все треки
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
     }
 }
@@ -1213,7 +1234,6 @@ async function loadUserProfile(userId) {
         
         // Проверяем, заблокирован ли пользователь
         const blockBtn = document.getElementById('blockBtn');
-        // Здесь нужно проверить черный список
         blockBtn.innerHTML = '<i class="fas fa-ban"></i> Заблокировать';
         blockBtn.onclick = () => blockUser();
         
@@ -1498,6 +1518,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const messageInput = document.getElementById('messageInput');
     const fileInput = document.getElementById('fileInput');
     const mobileBack = document.getElementById('mobileBack');
+    const emojiBtn = document.getElementById('emojiBtn');
     
     if (sendBtn) {
         sendBtn.addEventListener('click', sendMessage);
@@ -1529,6 +1550,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             this.value = '';
         });
+    }
+    if (emojiBtn) {
+        emojiBtn.addEventListener('click', toggleEmojiPanel);
     }
 });
 
