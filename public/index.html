@@ -18,7 +18,6 @@
                 <p>Социальная сеть</p>
             </div>
             
-            <!-- Вход -->
             <div id="loginForm" class="auth-form">
                 <h2>Вход</h2>
                 <div class="input-group">
@@ -33,7 +32,6 @@
                 <p class="auth-switch">Нет аккаунта? <span onclick="showRegister()">Зарегистрироваться</span></p>
             </div>
 
-            <!-- Регистрация -->
             <div id="registerForm" class="auth-form" style="display:none;">
                 <h2>Регистрация</h2>
                 <div class="input-group">
@@ -52,7 +50,6 @@
                 <p class="auth-switch">Уже есть аккаунт? <span onclick="showLogin()">Войти</span></p>
             </div>
 
-            <!-- Подтверждение -->
             <div id="verifyForm" class="auth-form" style="display:none;">
                 <h2>Подтверждение</h2>
                 <p style="color: #6a6a6a; text-align: center; margin-bottom: 20px; font-size: 14px;">
@@ -136,12 +133,10 @@
             </div>
 
             <div class="chat-input">
-                <!-- Кнопка смайликов -->
                 <button class="input-btn" id="emojiBtn" title="Смайлики">
                     <i class="far fa-smile"></i>
                 </button>
                 
-                <!-- Кнопка прикрепления файла -->
                 <label class="input-btn" for="fileInput" title="Прикрепить файл">
                     <i class="fas fa-paperclip"></i>
                 </label>
@@ -151,14 +146,13 @@
                 <button id="sendBtn" disabled><i class="fas fa-paper-plane"></i></button>
             </div>
 
-            <!-- Эмодзи-панель -->
             <div id="emojiPanel" class="emoji-panel" style="display:none;">
                 <div class="emoji-grid" id="emojiGrid"></div>
             </div>
         </div>
     </div>
 
-    <!-- ===== МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ КОНТАКТА ===== -->
+    <!-- ===== МОДАЛЬНОЕ ОКНО ===== -->
     <div id="addContactModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -179,7 +173,6 @@
         </div>
     </div>
 
-    <!-- ===== ПРЕВЬЮ ФАЙЛОВ ===== -->
     <div id="filePreviewModal" class="modal">
         <div class="modal-content" style="max-width: 600px;">
             <div class="modal-header">

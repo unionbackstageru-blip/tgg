@@ -66,16 +66,19 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
 // ===== API РОУТЫ =====
 
-// Регистрация
+// РЕГИСТРАЦИЯ
 app.post('/api/register', async (req, res) => {
     try {
+        console.log('📝 Регистрация:', req.body);
         const { name, phone, password } = req.body;
         
+        // Проверяем, существует ли пользователь
         const existing = await db.getUser(phone);
         if (existing) {
             return res.status(400).json({ error: 'Пользователь с таким номером уже существует' });
         }
         
+        // Хешируем пароль
         const hashedPassword = await bcrypt.hash(password, 10);
         const user = {
             id: Date.now().toString(),
@@ -85,14 +88,17 @@ app.post('/api/register', async (req, res) => {
             avatar: name.charAt(0).toUpperCase()
         };
         
+        // Сохраняем пользователя
         await db.createUser(user);
         
-        // Отправляем код подтверждения (если нужно)
+        // Генерируем код подтверждения
         const code = String(Math.floor(100000 + Math.random() * 900000));
-        const expires = Date.now() + 5 * 60 * 1000;
+        const expires = Date.now() + 5 * 60 * 1000; // 5 минут
         await db.saveVerification(phone, code, expires);
+        
         console.log(`📱 Код для ${phone}: ${code}`);
         
+        // Отправляем успешный ответ с номером телефона
         res.json({ 
             success: true, 
             message: 'Код подтверждения отправлен',
@@ -104,29 +110,33 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Подтверждение кода
+// ПОДТВЕРЖДЕНИЕ КОДА
 app.post('/api/verify', async (req, res) => {
     try {
+        console.log('🔑 Подтверждение:', req.body);
         const { phone, code } = req.body;
         
         const verification = await db.getVerification(phone);
         if (!verification) {
-            return res.status(400).json({ error: 'Код не найден' });
+            return res.status(400).json({ error: 'Код не найден. Запросите новый код' });
         }
         
         if (Date.now() > verification.expires) {
             await db.deleteVerification(phone);
-            return res.status(400).json({ error: 'Код истек' });
+            return res.status(400).json({ error: 'Код истек. Запросите новый код' });
         }
         
         if (verification.code !== code) {
             return res.status(400).json({ error: 'Неверный код' });
         }
         
+        // Код верный - удаляем его и подтверждаем пользователя
         await db.deleteVerification(phone);
         await db.verifyUser(phone);
         
         const user = await db.getUser(phone);
+        console.log(`✅ Пользователь ${user.name} подтвержден!`);
+        
         res.json({ 
             success: true, 
             user: {
@@ -143,9 +153,10 @@ app.post('/api/verify', async (req, res) => {
     }
 });
 
-// Вход
+// ВХОД
 app.post('/api/login', async (req, res) => {
     try {
+        console.log('🔐 Вход:', req.body);
         const { phone, password } = req.body;
         
         const user = await db.getUser(phone);
@@ -158,11 +169,14 @@ app.post('/api/login', async (req, res) => {
             return res.status(400).json({ error: 'Неверный пароль' });
         }
         
+        // Если пользователь не подтвержден - отправляем код
         if (!user.verified) {
+            console.log(`📱 Пользователь ${phone} не подтвержден, отправляем код`);
             const code = String(Math.floor(100000 + Math.random() * 900000));
             const expires = Date.now() + 5 * 60 * 1000;
             await db.saveVerification(phone, code, expires);
             console.log(`📱 Код для ${phone}: ${code}`);
+            
             return res.json({ 
                 needVerification: true,
                 phone: phone,
@@ -170,7 +184,9 @@ app.post('/api/login', async (req, res) => {
             });
         }
         
+        // Пользователь подтвержден - логиним
         await db.setUserOnline(user.id, true);
+        console.log(`✅ Пользователь ${user.name} вошел`);
         
         res.json({
             success: true,
@@ -188,7 +204,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// ===== ОСТАЛЬНЫЕ РОУТЫ (без изменений) =====
+// ===== ОСТАЛЬНЫЕ РОУТЫ =====
 
 // Получить чаты пользователя
 app.get('/api/chats/:userId', async (req, res) => {
@@ -254,7 +270,8 @@ app.get('/api/users/phone/:phone', async (req, res) => {
             name: user.name,
             phone: user.phone,
             avatar: user.avatar,
-            online: user.online === 1
+            online: user.online === 1,
+            verified: user.verified === 1
         });
     } catch (error) {
         console.error('Get user error:', error);

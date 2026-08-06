@@ -1,5 +1,5 @@
 /* ============================================================
-   Telegram Social Network - Клиент (с файлами и смайликами)
+   Telegram Social Network - Клиент (ИСПРАВЛЕННЫЙ)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -20,13 +20,7 @@ const EMOJIS = [
     '😡', '😠', '🤬', '👍', '👎', '👊', '✊', '🤛', '🤜', '👏',
     '🙌', '👐', '🤲', '🤝', '🙏', '✌️', '🤟', '🤘', '👌', '🤞',
     '🤙', '💪', '🦾', '🖕', '❤️', '🧡', '💛', '💚', '💙', '💜',
-    '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💯', '💢', '💥', '🔥',
-    '✨', '⭐', '🌟', '💫', '☀️', '🌈', '☁️', '⛅', '🌧️', '🌨️',
-    '❄️', '☃️', '⛄', '🌊', '🌸', '🌺', '🌻', '🌹', '🌷', '🌿',
-    '🌵', '🌲', '🌳', '🍁', '🍂', '🍃', '🍇', '🍈', '🍉', '🍊',
-    '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓',
-    '🫐', '🥝', '🍅', '🫒', '🥥', '🥑', '🍆', '🥔', '🥕', '🌽',
-    '🥦', '🥬', '🥒', '🌶️', '🫑', '🥨', '🍞', '🥐', '🥖', '🥯'
+    '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💯', '💢', '💥', '🔥'
 ];
 
 // ===== API =====
@@ -36,6 +30,15 @@ const api = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, phone, password })
+        });
+        return res.json();
+    },
+
+    async verify(phone, code) {
+        const res = await fetch(`${API_URL}/api/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, code })
         });
         return res.json();
     },
@@ -94,7 +97,6 @@ const api = {
     async uploadFile(file) {
         const formData = new FormData();
         formData.append('file', file);
-        
         const res = await fetch(`${API_URL}/api/upload`, {
             method: 'POST',
             body: formData
@@ -112,9 +114,7 @@ function connectSocket(userId) {
         socket.emit('userOnline', userId);
     });
     
-    socket.on('userStatus', (data) => {
-        renderChats();
-    });
+    socket.on('userStatus', () => { renderChats(); });
     
     socket.on('newMessage', (data) => {
         if (data.chatId === currentChatId) {
@@ -127,10 +127,6 @@ function connectSocket(userId) {
     socket.on('chatsUpdate', (chats) => {
         allChats = chats;
         renderChats();
-    });
-    
-    socket.on('disconnect', () => {
-        console.log('🔌 WebSocket отключен');
     });
 }
 
@@ -153,7 +149,10 @@ function showVerification(phone) {
     document.getElementById('registerForm').style.display = 'none';
     document.getElementById('verifyForm').style.display = 'block';
     document.getElementById('verifyPhone').textContent = phone;
-    document.querySelectorAll('.code-input').forEach(input => input.value = '');
+    document.querySelectorAll('.code-input').forEach(input => {
+        input.value = '';
+        input.classList.remove('filled');
+    });
     document.getElementById('code1').focus();
 }
 
@@ -166,47 +165,67 @@ async function register() {
     if (!phone || phone.length < 10) { showToast('Введите корректный номер', 'error'); return; }
     if (!password || password.length < 6) { showToast('Пароль минимум 6 символов', 'error'); return; }
 
+    showToast('⏳ Отправка запроса...', 'info');
+    
     const result = await api.register(name, phone, password);
-    if (result.error) {
-        showToast(result.error, 'error');
-        return;
-    }
-
-    showVerification(phone);
-    showToast('Код отправлен!', 'success');
-}
-
-async function verifyCode() {
-    let code = '';
-    for (let i = 1; i <= 6; i++) {
-        const input = document.getElementById(`code${i}`);
-        if (!input.value) { showToast('Введите полный код', 'error'); return; }
-        code += input.value;
-    }
-
-    const phone = document.getElementById('verifyPhone').textContent;
-    const result = await api.verify(phone, code);
+    console.log('📝 Результат регистрации:', result);
     
     if (result.error) {
         showToast(result.error, 'error');
         return;
     }
 
-    showToast('✅ Номер подтвержден!', 'success');
-    loginUser(result.user);
+    if (result.success) {
+        showToast('📱 Код отправлен! Проверьте консоль', 'success');
+        showVerification(phone);
+    } else {
+        showToast('Ошибка при регистрации', 'error');
+    }
+}
+
+async function verifyCode() {
+    let code = '';
+    for (let i = 1; i <= 6; i++) {
+        const input = document.getElementById(`code${i}`);
+        if (!input.value) { 
+            showToast('Введите полный код из 6 цифр', 'error'); 
+            return; 
+        }
+        code += input.value;
+    }
+
+    const phone = document.getElementById('verifyPhone').textContent;
+    console.log('🔑 Отправка кода:', { phone, code });
+    
+    const result = await api.verify(phone, code);
+    console.log('🔑 Результат верификации:', result);
+    
+    if (result.error) {
+        showToast(result.error, 'error');
+        return;
+    }
+
+    if (result.success && result.user) {
+        showToast('✅ Номер подтвержден!', 'success');
+        loginUser(result.user);
+    } else {
+        showToast('Ошибка подтверждения', 'error');
+    }
 }
 
 async function resendCode() {
     const phone = document.getElementById('verifyPhone').textContent;
-    const result = await api.register(
-        document.getElementById('regName').value.trim() || 'User',
-        phone,
-        document.getElementById('regPassword').value || '123456'
-    );
+    const name = document.getElementById('regName').value.trim() || 'User';
+    const password = document.getElementById('regPassword').value || '123456';
+    
+    showToast('⏳ Отправка нового кода...', 'info');
+    const result = await api.register(name, phone, password);
+    console.log('📝 Повторная отправка:', result);
+    
     if (result.error) {
         showToast(result.error, 'error');
     } else {
-        showToast('Новый код отправлен!', 'success');
+        showToast('📱 Новый код отправлен!', 'success');
     }
 }
 
@@ -219,7 +238,10 @@ async function login() {
         return;
     }
 
+    showToast('⏳ Вход...', 'info');
+    
     const result = await api.login(phone, password);
+    console.log('🔐 Результат входа:', result);
     
     if (result.error) {
         showToast(result.error, 'error');
@@ -227,14 +249,20 @@ async function login() {
     }
 
     if (result.needVerification) {
+        showToast('📱 Требуется подтверждение. Код отправлен!', 'success');
         showVerification(phone);
         return;
     }
 
-    loginUser(result.user);
+    if (result.success && result.user) {
+        loginUser(result.user);
+    } else {
+        showToast('Ошибка входа', 'error');
+    }
 }
 
 function loginUser(user) {
+    console.log('✅ Вход выполнен:', user);
     currentUser = user;
     document.getElementById('authScreen').style.display = 'none';
     document.getElementById('mainApp').style.display = 'flex';
@@ -392,7 +420,6 @@ async function renderMessages(chatId) {
         
         let content = msg.text || '';
         
-        // Если есть файл
         if (msg.file) {
             content += renderFileAttachment(msg.file, isSent);
         }
@@ -407,7 +434,8 @@ async function renderMessages(chatId) {
     area.scrollTop = area.scrollHeight;
 }
 
-// ===== РЕНДЕР ФАЙЛА В СООБЩЕНИИ =====
+// ===== ФАЙЛЫ =====
+
 function renderFileAttachment(file, isSent) {
     const isImage = file.type && file.type.startsWith('image/');
     const size = formatFileSize(file.size);
@@ -431,8 +459,6 @@ function renderFileAttachment(file, isSent) {
     `;
 }
 
-// ===== ФАЙЛЫ =====
-
 function getFileIcon(filename) {
     const ext = filename.split('.').pop().toLowerCase();
     const icons = {
@@ -446,17 +472,14 @@ function getFileIcon(filename) {
         'txt': 'file-alt',
         'zip': 'file-archive',
         'rar': 'file-archive',
-        '7z': 'file-archive',
         'mp3': 'file-audio',
-        'wav': 'file-audio',
         'mp4': 'file-video',
         'avi': 'file-video',
         'mkv': 'file-video',
         'json': 'file-code',
         'js': 'file-code',
         'html': 'file-code',
-        'css': 'file-code',
-        'xml': 'file-code'
+        'css': 'file-code'
     };
     return icons[ext] || 'file';
 }
@@ -473,16 +496,9 @@ async function uploadFiles(files) {
     
     for (const file of files) {
         try {
-            // Показываем прогресс
             const progressId = showUploadProgress(file.name);
-            
-            // Загружаем файл
             const result = await api.uploadFile(file);
-            
-            // Убираем прогресс
             removeUploadProgress(progressId);
-            
-            // Отправляем сообщение с файлом
             if (result.success) {
                 sendMessageWithFile(result.file);
             }
@@ -516,38 +532,24 @@ function showUploadProgress(filename) {
     return id;
 }
 
-function updateUploadProgress(id, percent) {
-    const el = document.getElementById(id);
-    if (el) {
-        const fill = el.querySelector('.progress-fill');
-        const text = el.querySelector('.progress-text');
-        if (fill) fill.style.width = percent + '%';
-        if (text) text.textContent = percent + '%';
-    }
-}
-
 function removeUploadProgress(id) {
     const el = document.getElementById(id);
     if (el) el.remove();
 }
 
 function sendMessageWithFile(file) {
-    const message = {
+    socket.emit('sendMessage', {
         chatId: currentChatId,
         senderId: currentUser.id,
         text: '',
         file: file
-    };
-    socket.emit('sendMessage', message);
+    });
 }
-
-// ===== ПОКАЗ ФАЙЛА =====
 
 function showFilePreview(url) {
     const modal = document.getElementById('filePreviewModal');
     const content = document.getElementById('filePreviewContent');
     
-    // Определяем тип файла
     const isImage = url.match(/\.(jpg|jpeg|png|gif|bmp|webp|svg)/i);
     
     if (isImage) {
@@ -624,15 +626,6 @@ function sendMessage() {
     input.value = '';
 }
 
-function sendMessageWithFile(file) {
-    socket.emit('sendMessage', {
-        chatId: currentChatId,
-        senderId: currentUser.id,
-        text: '',
-        file: file
-    });
-}
-
 // ===== КОНТАКТЫ =====
 
 function showAddContact() {
@@ -690,16 +683,40 @@ document.getElementById('addContactModal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
 });
 
-// Эмодзи
 document.getElementById('emojiBtn').addEventListener('click', toggleEmojiPanel);
 
-// Файлы
 document.getElementById('fileInput').addEventListener('change', (e) => {
     const files = e.target.files;
     if (files.length > 0) {
         uploadFiles(files);
     }
-    e.target.value = ''; // Сброс
+    e.target.value = '';
+});
+
+// ===== КОД ПОДТВЕРЖДЕНИЯ =====
+
+document.querySelectorAll('.code-input').forEach((input, index, arr) => {
+    input.addEventListener('input', (e) => {
+        if (e.target.value) {
+            e.target.classList.add('filled');
+            if (index < arr.length - 1) {
+                arr[index + 1].focus();
+            } else {
+                setTimeout(verifyCode, 300);
+            }
+        } else {
+            e.target.classList.remove('filled');
+        }
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !e.target.value && index > 0) {
+            arr[index - 1].focus();
+        }
+        if (e.key === 'Enter') verifyCode();
+    });
+    input.addEventListener('keypress', (e) => {
+        if (!/[0-9]/.test(e.key)) e.preventDefault();
+    });
 });
 
 // ===== УВЕДОМЛЕНИЯ =====
