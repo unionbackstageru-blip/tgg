@@ -12,11 +12,15 @@ console.log('🚀 Запуск сервера...');
 
 const publicDir = path.join(__dirname, '..', 'public');
 const uploadDir = path.join(publicDir, 'uploads');
+const voiceDir = path.join(publicDir, 'voices');
+const storyDir = path.join(publicDir, 'stories');
 
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-    console.log('📁 Создана папка uploads');
-}
+[uploadDir, voiceDir, storyDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`📁 Создана папка: ${dir}`);
+    }
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -31,10 +35,17 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(publicDir));
 app.use('/uploads', express.static(uploadDir));
+app.use('/voices', express.static(voiceDir));
+app.use('/stories', express.static(storyDir));
 
 // ===== ЗАГРУЗКА ФАЙЛОВ =====
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
+    destination: (req, file, cb) => {
+        let dir = uploadDir;
+        if (file.fieldname === 'voice') dir = voiceDir;
+        if (file.fieldname === 'story') dir = storyDir;
+        cb(null, dir);
+    },
     filename: (req, file, cb) => {
         const unique = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, unique + '-' + file.originalname);
@@ -55,6 +66,38 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
                 type: req.file.mimetype
             }
         });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка загрузки' });
+    }
+});
+
+app.post('/api/upload-voice', upload.single('voice'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'Голосовое не загружено' });
+        res.json({
+            success: true,
+            file: {
+                url: '/voices/' + req.file.filename,
+                duration: parseInt(req.body.duration) || 0
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка загрузки' });
+    }
+});
+
+app.post('/api/upload-story', upload.single('story'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'История не загружена' });
+        const story = await db.createStory({
+            id: Date.now().toString(),
+            user_id: req.body.userId,
+            file: '/stories/' + req.file.filename,
+            text: req.body.text || '',
+            created_at: new Date().toISOString(),
+            expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        });
+        res.json({ success: true, story });
     } catch (error) {
         res.status(500).json({ error: 'Ошибка загрузки' });
     }
@@ -97,7 +140,6 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Подтверждение
 app.post('/api/verify', async (req, res) => {
     try {
         const { phone, code } = req.body;
@@ -125,7 +167,9 @@ app.post('/api/verify', async (req, res) => {
                 phone: user.phone,
                 avatar: user.avatar,
                 bio: user.bio,
-                verified: true
+                verified: true,
+                wallpaper: user.wallpaper,
+                theme: user.theme
             }
         });
     } catch (error) {
@@ -134,7 +178,6 @@ app.post('/api/verify', async (req, res) => {
     }
 });
 
-// Вход
 app.post('/api/login', async (req, res) => {
     try {
         const { phone, password } = req.body;
@@ -166,7 +209,9 @@ app.post('/api/login', async (req, res) => {
                 phone: user.phone,
                 avatar: user.avatar,
                 bio: user.bio,
-                verified: true
+                verified: true,
+                wallpaper: user.wallpaper,
+                theme: user.theme
             }
         });
     } catch (error) {
@@ -175,7 +220,6 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Восстановление сессии
 app.post('/api/restore-session', async (req, res) => {
     try {
         const { userId } = req.body;
@@ -195,7 +239,9 @@ app.post('/api/restore-session', async (req, res) => {
                 phone: user.phone,
                 avatar: user.avatar,
                 bio: user.bio,
-                verified: user.verified === 1
+                verified: user.verified === 1,
+                wallpaper: user.wallpaper,
+                theme: user.theme
             }
         });
     } catch (error) {
@@ -204,11 +250,9 @@ app.post('/api/restore-session', async (req, res) => {
     }
 });
 
-// Обновление профиля
 app.post('/api/update-profile', async (req, res) => {
     try {
-        const { userId, name, username, bio, avatar } = req.body;
-        console.log('📝 Обновление профиля:', { userId, name, username });
+        const { userId, name, username, bio, avatar, wallpaper, theme } = req.body;
         
         const user = await db.getUserById(userId);
         if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
@@ -225,6 +269,8 @@ app.post('/api/update-profile', async (req, res) => {
         if (username) updateData.username = username;
         if (bio !== undefined) updateData.bio = bio;
         if (avatar !== undefined) updateData.avatar = avatar;
+        if (wallpaper !== undefined) updateData.wallpaper = wallpaper;
+        if (theme !== undefined) updateData.theme = theme;
         
         if (Object.keys(updateData).length > 0) {
             await db.updateUser(userId, updateData);
@@ -240,7 +286,9 @@ app.post('/api/update-profile', async (req, res) => {
                 phone: updated.phone,
                 avatar: updated.avatar,
                 bio: updated.bio,
-                verified: updated.verified === 1
+                verified: updated.verified === 1,
+                wallpaper: updated.wallpaper,
+                theme: updated.theme
             }
         });
     } catch (error) {
@@ -249,26 +297,9 @@ app.post('/api/update-profile', async (req, res) => {
     }
 });
 
-// Поиск
-app.get('/api/search/:query', async (req, res) => {
-    try {
-        const users = await db.searchUsers(req.params.query);
-        const filtered = users.filter(u => u.id !== req.query.userId);
-        res.json(filtered.map(u => ({
-            id: u.id,
-            name: u.name,
-            username: u.username,
-            avatar: u.avatar,
-            bio: u.bio,
-            online: u.online === 1
-        })));
-    } catch (error) {
-        console.error('Search error:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
-    }
-});
+// ===== ДОПОЛНИТЕЛЬНЫЕ РОУТЫ =====
 
-// Получить чаты
+// Получить все чаты
 app.get('/api/chats/:userId', async (req, res) => {
     try {
         const chats = await db.getChats(req.params.userId);
@@ -279,7 +310,7 @@ app.get('/api/chats/:userId', async (req, res) => {
     }
 });
 
-// Получить сообщения
+// Получить сообщения чата
 app.get('/api/messages/:chatId', async (req, res) => {
     try {
         const messages = await db.getMessages(req.params.chatId);
@@ -290,13 +321,19 @@ app.get('/api/messages/:chatId', async (req, res) => {
     }
 });
 
-// Создать чат
+// Создать чат (группу или канал)
 app.post('/api/create-chat', async (req, res) => {
     try {
-        const { name, type, createdBy, participants, description } = req.body;
+        const { name, type, createdBy, participants, description, avatar } = req.body;
         const allParticipants = [createdBy, ...(participants || [])];
-        const chat = await db.createChat(allParticipants, name, type || 'group', createdBy, description);
+        const chat = await db.createChat(allParticipants, name, type || 'group', createdBy, description, avatar || null);
         
+        // Подписываем создателя на канал
+        if (type === 'channel') {
+            await db.subscribeToChannel(chat.id, createdBy);
+        }
+        
+        // Уведомляем участников
         for (const userId of allParticipants) {
             const socketId = onlineUsers.get(userId);
             if (socketId) {
@@ -324,6 +361,25 @@ app.post('/api/contacts', async (req, res) => {
         res.json({ chat, contact });
     } catch (error) {
         console.error('Add contact error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Поиск пользователей
+app.get('/api/search/:query', async (req, res) => {
+    try {
+        const users = await db.searchUsers(req.params.query);
+        const filtered = users.filter(u => u.id !== req.query.userId);
+        res.json(filtered.map(u => ({
+            id: u.id,
+            name: u.name,
+            username: u.username,
+            avatar: u.avatar,
+            bio: u.bio,
+            online: u.online === 1
+        })));
+    } catch (error) {
+        console.error('Search error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
@@ -361,7 +417,9 @@ app.get('/api/users/:userId', async (req, res) => {
             bio: user.bio,
             online: user.online === 1,
             last_seen: user.last_seen,
-            created_at: user.created_at
+            created_at: user.created_at,
+            wallpaper: user.wallpaper,
+            theme: user.theme
         });
     } catch (error) {
         console.error('Get user error:', error);
@@ -380,6 +438,8 @@ app.post('/api/messages/read', async (req, res) => {
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
+
+// ===== НОВЫЕ РОУТЫ =====
 
 // Редактировать сообщение
 app.post('/api/messages/edit', async (req, res) => {
@@ -418,7 +478,6 @@ app.post('/api/messages/reaction', async (req, res) => {
     try {
         const { messageId, userId, reaction } = req.body;
         const reactions = await db.addReaction(messageId, userId, reaction);
-        // Уведомляем всех в чате
         const message = await db.getMessage(messageId);
         if (message) {
             const participants = await db.getChatParticipants(message.chat_id);
@@ -448,29 +507,6 @@ app.post('/api/messages/reaction/remove', async (req, res) => {
     }
 });
 
-// Получить черновик
-app.get('/api/drafts/:chatId/:userId', async (req, res) => {
-    try {
-        const draft = await db.getDraft(req.params.chatId, req.params.userId);
-        res.json({ draft: draft ? draft.text : null });
-    } catch (error) {
-        console.error('Get draft error:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
-    }
-});
-
-// Сохранить черновик
-app.post('/api/drafts', async (req, res) => {
-    try {
-        const { chatId, userId, text } = req.body;
-        await db.saveDraft(chatId, userId, text);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Save draft error:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
-    }
-});
-
 // Закрепить сообщение
 app.post('/api/messages/pin', async (req, res) => {
     try {
@@ -495,13 +531,95 @@ app.post('/api/messages/unpin', async (req, res) => {
     }
 });
 
-// Поиск по сообщениям
-app.get('/api/search/messages/:query/:userId', async (req, res) => {
+// Получить истории
+app.get('/api/stories/:userId', async (req, res) => {
     try {
-        const messages = await db.searchMessages(req.params.query, req.params.userId);
-        res.json(messages);
+        const stories = await db.getStoriesForUser(req.params.userId);
+        res.json(stories);
     } catch (error) {
-        console.error('Search messages error:', error);
+        console.error('Stories error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Просмотреть историю
+app.post('/api/stories/view', async (req, res) => {
+    try {
+        const { storyId, userId } = req.body;
+        await db.viewStory(storyId, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('View story error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Получить звонки
+app.get('/api/calls/:userId', async (req, res) => {
+    try {
+        const calls = await db.getCalls(req.params.userId);
+        res.json(calls);
+    } catch (error) {
+        console.error('Calls error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Блокировка пользователя
+app.post('/api/block', async (req, res) => {
+    try {
+        const { userId, blockId } = req.body;
+        await db.addToBlacklist(userId, blockId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Block error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Разблокировка пользователя
+app.post('/api/unblock', async (req, res) => {
+    try {
+        const { userId, blockId } = req.body;
+        await db.removeFromBlacklist(userId, blockId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Unblock error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Настройки чата
+app.post('/api/chat/settings', async (req, res) => {
+    try {
+        const { chatId, wallpaper, autoDelete } = req.body;
+        if (wallpaper !== undefined) await db.setChatWallpaper(chatId, wallpaper);
+        if (autoDelete !== undefined) await db.setAutoDelete(chatId, autoDelete);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Chat settings error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Черновик
+app.get('/api/drafts/:chatId/:userId', async (req, res) => {
+    try {
+        const draft = await db.getDraft(req.params.chatId, req.params.userId);
+        res.json({ draft: draft ? draft.text : null });
+    } catch (error) {
+        console.error('Get draft error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+app.post('/api/drafts', async (req, res) => {
+    try {
+        const { chatId, userId, text } = req.body;
+        await db.saveDraft(chatId, userId, text);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Save draft error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
@@ -509,7 +627,6 @@ app.get('/api/search/messages/:query/:userId', async (req, res) => {
 // ===== WEBSOCKET =====
 
 const onlineUsers = new Map();
-const typingUsers = new Map();
 
 io.on('connection', (socket) => {
     console.log('👤 Подключен:', socket.id);
@@ -569,6 +686,32 @@ io.on('connection', (socket) => {
         }
     });
     
+    socket.on('sendVoice', async (data) => {
+        try {
+            const { chatId, senderId, file, duration } = data;
+            const message = {
+                id: Date.now().toString(),
+                chat_id: chatId,
+                sender_id: senderId,
+                text: '',
+                file: file,
+                voice_duration: duration,
+                created_at: new Date().toISOString()
+            };
+            await db.createVoiceMessage(message);
+            
+            const participants = await db.getChatParticipants(chatId);
+            for (const p of participants) {
+                const socketId = onlineUsers.get(p.user_id);
+                if (socketId) {
+                    io.to(socketId).emit('newMessage', { message, chatId, senderId });
+                }
+            }
+        } catch (error) {
+            console.error('Send voice error:', error);
+        }
+    });
+    
     socket.on('messageRead', async (data) => {
         try {
             const { messageId, userId } = data;
@@ -606,18 +749,77 @@ io.on('connection', (socket) => {
     socket.on('messageEdited', async (data) => {
         try {
             const { messageId, text, chatId } = data;
-            const message = await db.editMessage(messageId, text);
-            if (message) {
-                const participants = await db.getChatParticipants(chatId);
-                for (const p of participants) {
-                    const socketId = onlineUsers.get(p.user_id);
-                    if (socketId) {
-                        io.to(socketId).emit('messageEdited', { messageId, text, chatId });
-                    }
+            await db.editMessage(messageId, text);
+            const participants = await db.getChatParticipants(chatId);
+            for (const p of participants) {
+                const socketId = onlineUsers.get(p.user_id);
+                if (socketId) {
+                    io.to(socketId).emit('messageEdited', { messageId, text, chatId });
                 }
             }
         } catch (error) {
             console.error('Message edit error:', error);
+        }
+    });
+    
+    socket.on('callStart', async (data) => {
+        try {
+            const { from, to, type } = data;
+            const call = await db.createCall({
+                id: Date.now().toString(),
+                from_user: from,
+                to_user: to,
+                type: type || 'audio',
+                status: 'ringing',
+                started_at: new Date().toISOString()
+            });
+            const toSocket = onlineUsers.get(to);
+            if (toSocket) {
+                io.to(toSocket).emit('incomingCall', { call, from });
+            }
+        } catch (error) {
+            console.error('Call start error:', error);
+        }
+    });
+    
+    socket.on('callAnswer', async (data) => {
+        try {
+            const { callId, answer } = data;
+            const status = answer ? 'connected' : 'declined';
+            await db.updateCallStatus(callId, status);
+            const call = await db.getQuery('SELECT * FROM calls WHERE id = ?', [callId]);
+            if (call) {
+                const fromSocket = onlineUsers.get(call.from_user);
+                if (fromSocket) {
+                    io.to(fromSocket).emit('callAnswer', { callId, answer });
+                }
+                const toSocket = onlineUsers.get(call.to_user);
+                if (toSocket) {
+                    io.to(toSocket).emit('callAnswer', { callId, answer });
+                }
+            }
+        } catch (error) {
+            console.error('Call answer error:', error);
+        }
+    });
+    
+    socket.on('callEnd', async (data) => {
+        try {
+            const { callId, duration } = data;
+            await db.updateCallStatus(callId, 'ended', new Date().toISOString(), duration || 0);
+            const call = await db.getQuery('SELECT * FROM calls WHERE id = ?', [callId]);
+            if (call) {
+                const fromSocket = onlineUsers.get(call.from_user);
+                if (fromSocket) {
+                    io.to(fromSocket).emit('callEnd', { callId });
+                }
+                const toSocket = onlineUsers.get(call.to_user);
+                if (toSocket) {
+                    io.to(toSocket).emit('callEnd', { callId });
+                }
+            }
+        } catch (error) {
+            console.error('Call end error:', error);
         }
     });
     

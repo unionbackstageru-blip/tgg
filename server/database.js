@@ -7,17 +7,13 @@ console.log('📦 Инициализация базы данных...');
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
-    console.log('📁 Создана папка data');
 }
 
 const dbPath = path.join(dataDir, 'database.sqlite');
-console.log('📄 Путь к БД:', dbPath);
-
 const db = new sqlite3.Database(dbPath);
 
-// ===== СОЗДАЁМ ВСЕ ТАБЛИЦЫ =====
 db.serialize(() => {
-    // Пользователи
+    // ===== ПОЛЬЗОВАТЕЛИ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -30,11 +26,14 @@ db.serialize(() => {
             verified INTEGER DEFAULT 0,
             online INTEGER DEFAULT 0,
             last_seen TEXT,
-            created_at TEXT
+            wallpaper TEXT,
+            theme TEXT DEFAULT 'dark',
+            created_at TEXT,
+            blacklist TEXT
         )
     `);
 
-    // Коды верификации
+    // ===== ВЕРИФИКАЦИЯ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS verifications (
             phone TEXT PRIMARY KEY,
@@ -43,7 +42,7 @@ db.serialize(() => {
         )
     `);
 
-    // Чаты
+    // ===== ЧАТЫ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
@@ -55,11 +54,13 @@ db.serialize(() => {
             created_at TEXT,
             last_message TEXT,
             last_message_time TEXT,
-            pinned_message_id TEXT
+            pinned_message_id TEXT,
+            auto_delete INTEGER DEFAULT 0,
+            wallpaper TEXT
         )
     `);
 
-    // Участники чатов
+    // ===== УЧАСТНИКИ ЧАТОВ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
@@ -71,7 +72,7 @@ db.serialize(() => {
         )
     `);
 
-    // Сообщения (расширенные)
+    // ===== СООБЩЕНИЯ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -87,11 +88,12 @@ db.serialize(() => {
             edited_at TEXT,
             deleted INTEGER DEFAULT 0,
             auto_delete_at TEXT,
-            created_at TEXT
+            created_at TEXT,
+            voice_duration INTEGER DEFAULT 0
         )
     `);
 
-    // Реакции на сообщения
+    // ===== РЕАКЦИИ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS message_reactions (
             message_id TEXT,
@@ -102,7 +104,7 @@ db.serialize(() => {
         )
     `);
 
-    // Непрочитанные сообщения
+    // ===== НЕПРОЧИТАННЫЕ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
@@ -111,7 +113,7 @@ db.serialize(() => {
         )
     `);
 
-    // Черновики
+    // ===== ЧЕРНОВИКИ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS drafts (
             chat_id TEXT,
@@ -122,13 +124,49 @@ db.serialize(() => {
         )
     `);
 
-    // Подписчики каналов
+    // ===== ПОДПИСЧИКИ КАНАЛОВ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS channel_subscribers (
             channel_id TEXT,
             user_id TEXT,
             subscribed_at TEXT,
             PRIMARY KEY (channel_id, user_id)
+        )
+    `);
+
+    // ===== ИСТОРИИ =====
+    db.run(`
+        CREATE TABLE IF NOT EXISTS stories (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            file TEXT NOT NULL,
+            text TEXT,
+            created_at TEXT,
+            expires_at TEXT
+        )
+    `);
+
+    // ===== ПРОСМОТРЫ ИСТОРИЙ =====
+    db.run(`
+        CREATE TABLE IF NOT EXISTS story_views (
+            story_id TEXT,
+            user_id TEXT,
+            viewed_at TEXT,
+            PRIMARY KEY (story_id, user_id)
+        )
+    `);
+
+    // ===== ЗВОНКИ =====
+    db.run(`
+        CREATE TABLE IF NOT EXISTS calls (
+            id TEXT PRIMARY KEY,
+            from_user TEXT,
+            to_user TEXT,
+            type TEXT DEFAULT 'audio',
+            status TEXT DEFAULT 'ringing',
+            started_at TEXT,
+            ended_at TEXT,
+            duration INTEGER DEFAULT 0
         )
     `);
 
@@ -164,10 +202,8 @@ function allQuery(sql, params = []) {
     });
 }
 
-// ===== КЛАСС =====
-
 class Database {
-    // ---------- ПОЛЬЗОВАТЕЛИ ----------
+    // ===== ПОЛЬЗОВАТЕЛИ =====
     async getUser(phone) {
         return getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
     }
@@ -191,10 +227,11 @@ class Database {
 
     async createUser(user) {
         await runQuery(
-            `INSERT INTO users (id, name, username, phone, password, avatar, bio, verified, online, last_seen, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [user.id, user.name, user.username, user.phone, user.password, 
-             user.avatar || null, user.bio || null, 0, 0, null, new Date().toISOString()]
+            `INSERT INTO users (id, name, username, phone, password, avatar, bio, verified, online, last_seen, wallpaper, theme, created_at, blacklist) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [user.id, user.name, user.username, user.phone, user.password,
+             user.avatar || null, user.bio || null, 0, 0, null, 
+             user.wallpaper || null, user.theme || 'dark', new Date().toISOString(), '[]']
         );
         return user;
     }
@@ -222,7 +259,33 @@ class Database {
         await runQuery('UPDATE users SET online = ?, last_seen = ? WHERE id = ?', [online ? 1 : 0, lastSeen, userId]);
     }
 
-    // ---------- ВЕРИФИКАЦИЯ ----------
+    async addToBlacklist(userId, blockedId) {
+        const user = await this.getUserById(userId);
+        if (!user) return;
+        const blacklist = JSON.parse(user.blacklist || '[]');
+        if (!blacklist.includes(blockedId)) {
+            blacklist.push(blockedId);
+            await runQuery('UPDATE users SET blacklist = ? WHERE id = ?', [JSON.stringify(blacklist), userId]);
+        }
+    }
+
+    async removeFromBlacklist(userId, blockedId) {
+        const user = await this.getUserById(userId);
+        if (!user) return;
+        const blacklist = JSON.parse(user.blacklist || '[]');
+        const index = blacklist.indexOf(blockedId);
+        if (index > -1) {
+            blacklist.splice(index, 1);
+            await runQuery('UPDATE users SET blacklist = ? WHERE id = ?', [JSON.stringify(blacklist), userId]);
+        }
+    }
+
+    async getBlacklist(userId) {
+        const user = await this.getUserById(userId);
+        return user ? JSON.parse(user.blacklist || '[]') : [];
+    }
+
+    // ===== ВЕРИФИКАЦИЯ =====
     async saveVerification(phone, code, expires) {
         await runQuery(
             `INSERT OR REPLACE INTO verifications (phone, code, expires) VALUES (?, ?, ?)`,
@@ -238,16 +301,15 @@ class Database {
         await runQuery('DELETE FROM verifications WHERE phone = ?', [phone]);
     }
 
-    // ---------- ЧАТЫ ----------
+    // ===== ЧАТЫ =====
     async getChats(userId) {
+        const blacklist = await this.getBlacklist(userId);
         const chats = await allQuery(
             `SELECT c.* FROM chats c 
              JOIN chat_participants cp ON c.id = cp.chat_id 
-             WHERE cp.user_id = ? AND c.id NOT IN (
-                 SELECT chat_id FROM chat_participants WHERE user_id = ? AND muted_until > datetime('now')
-             )
+             WHERE cp.user_id = ? 
              ORDER BY c.last_message_time DESC`,
-            [userId, userId]
+            [userId]
         );
         
         for (const chat of chats) {
@@ -263,6 +325,7 @@ class Database {
                     chat.avatar = user ? user.avatar : null;
                     chat.userId = user ? user.id : null;
                     chat.isOnline = user ? user.online === 1 : false;
+                    chat.isBlocked = blacklist.includes(user ? user.id : '');
                 }
             } else {
                 chat.displayName = chat.name || 'Чат';
@@ -290,12 +353,12 @@ class Database {
         return null;
     }
 
-    async createChat(participants, name = null, type = 'private', createdBy = null, description = null) {
+    async createChat(participants, name = null, type = 'private', createdBy = null, description = null, avatar = null) {
         const chatId = Date.now().toString();
         await runQuery(
-            `INSERT INTO chats (id, name, type, description, created_by, created_at, last_message, last_message_time) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [chatId, name, type, description || null, createdBy, new Date().toISOString(), null, null]
+            `INSERT INTO chats (id, name, type, avatar, description, created_by, created_at, last_message, last_message_time) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [chatId, name, type, avatar || null, description || null, createdBy, new Date().toISOString(), null, null]
         );
         
         for (const userId of participants) {
@@ -324,7 +387,26 @@ class Database {
         );
     }
 
-    // ---------- СООБЩЕНИЯ ----------
+    async muteChat(chatId, userId, until) {
+        await runQuery(
+            `UPDATE chat_participants SET muted_until = ? WHERE chat_id = ? AND user_id = ?`,
+            [until, chatId, userId]
+        );
+    }
+
+    async setChatWallpaper(chatId, wallpaper) {
+        await runQuery('UPDATE chats SET wallpaper = ? WHERE id = ?', [wallpaper, chatId]);
+    }
+
+    async setUserWallpaper(userId, wallpaper) {
+        await runQuery('UPDATE users SET wallpaper = ? WHERE id = ?', [wallpaper, userId]);
+    }
+
+    async setUserTheme(userId, theme) {
+        await runQuery('UPDATE users SET theme = ? WHERE id = ?', [theme, userId]);
+    }
+
+    // ===== СООБЩЕНИЯ =====
     async getMessages(chatId, limit = 50) {
         return allQuery(
             `SELECT * FROM messages WHERE chat_id = ? AND deleted = 0 ORDER BY created_at ASC LIMIT ?`,
@@ -334,12 +416,12 @@ class Database {
 
     async createMessage(message) {
         await runQuery(
-            `INSERT INTO messages (id, chat_id, sender_id, text, file, reply_to, forwarded_from, status, read, read_at, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [message.id, message.chat_id, message.sender_id, message.text, 
-             message.file ? JSON.stringify(message.file) : null, 
+            `INSERT INTO messages (id, chat_id, sender_id, text, file, reply_to, forwarded_from, status, read, read_at, created_at, voice_duration) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [message.id, message.chat_id, message.sender_id, message.text,
+             message.file ? JSON.stringify(message.file) : null,
              message.reply_to || null, message.forwarded_from || null,
-             'sent', 0, null, message.created_at]
+             'sent', 0, null, message.created_at, message.voice_duration || 0]
         );
         
         const participants = await this.getChatParticipants(message.chat_id);
@@ -360,6 +442,14 @@ class Database {
         return message;
     }
 
+    async createVoiceMessage(message) {
+        return this.createMessage(message);
+    }
+
+    async getMessage(messageId) {
+        return getQuery('SELECT * FROM messages WHERE id = ? AND deleted = 0', [messageId]);
+    }
+
     async editMessage(messageId, text) {
         await runQuery(
             `UPDATE messages SET text = ?, edited_at = ? WHERE id = ?`,
@@ -373,10 +463,6 @@ class Database {
             `UPDATE messages SET deleted = 1 WHERE id = ? AND sender_id = ?`,
             [messageId, userId]
         );
-    }
-
-    async getMessage(messageId) {
-        return getQuery('SELECT * FROM messages WHERE id = ? AND deleted = 0', [messageId]);
     }
 
     async markMessageAsDelivered(messageId) {
@@ -417,7 +503,23 @@ class Database {
         return result ? result.count : 0;
     }
 
-    // ---------- РЕАКЦИИ ----------
+    async pinMessage(chatId, messageId) {
+        await runQuery('UPDATE chats SET pinned_message_id = ? WHERE id = ?', [messageId, chatId]);
+    }
+
+    async unpinMessage(chatId) {
+        await runQuery('UPDATE chats SET pinned_message_id = NULL WHERE id = ?', [chatId]);
+    }
+
+    async getPinnedMessage(chatId) {
+        const chat = await this.getChat(chatId);
+        if (chat && chat.pinned_message_id) {
+            return this.getMessage(chat.pinned_message_id);
+        }
+        return null;
+    }
+
+    // ===== РЕАКЦИИ =====
     async addReaction(messageId, userId, reaction) {
         await runQuery(
             `INSERT OR REPLACE INTO message_reactions (message_id, user_id, reaction, created_at) VALUES (?, ?, ?, ?)`,
@@ -441,7 +543,7 @@ class Database {
         );
     }
 
-    // ---------- ЧЕРНОВИКИ ----------
+    // ===== ЧЕРНОВИКИ =====
     async saveDraft(chatId, userId, text) {
         await runQuery(
             `INSERT OR REPLACE INTO drafts (chat_id, user_id, text, updated_at) VALUES (?, ?, ?, ?)`,
@@ -453,7 +555,7 @@ class Database {
         return getQuery('SELECT text FROM drafts WHERE chat_id = ? AND user_id = ?', [chatId, userId]);
     }
 
-    // ---------- КАНАЛЫ ----------
+    // ===== КАНАЛЫ =====
     async subscribeToChannel(channelId, userId) {
         await runQuery(
             `INSERT OR REPLACE INTO channel_subscribers (channel_id, user_id, subscribed_at) VALUES (?, ?, ?)`,
@@ -462,45 +564,104 @@ class Database {
         await this.addParticipant(channelId, userId);
     }
 
-    // ---------- ЗАКРЕПЛЁННЫЕ СООБЩЕНИЯ ----------
-    async pinMessage(chatId, messageId) {
+    async unsubscribeFromChannel(channelId, userId) {
         await runQuery(
-            `UPDATE chats SET pinned_message_id = ? WHERE id = ?`,
-            [messageId, chatId]
+            `DELETE FROM channel_subscribers WHERE channel_id = ? AND user_id = ?`,
+            [channelId, userId]
         );
     }
 
-    async unpinMessage(chatId) {
+    async getChannelSubscribers(channelId) {
+        const rows = await allQuery(
+            `SELECT user_id FROM channel_subscribers WHERE channel_id = ?`,
+            [channelId]
+        );
+        return rows.map(row => row.user_id);
+    }
+
+    // ===== ИСТОРИИ =====
+    async createStory(story) {
         await runQuery(
-            `UPDATE chats SET pinned_message_id = NULL WHERE id = ?`,
-            [chatId]
+            `INSERT INTO stories (id, user_id, file, text, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
+            [story.id, story.user_id, story.file, story.text || '', story.created_at, story.expires_at]
+        );
+        return story;
+    }
+
+    async getActiveStories(userId) {
+        const now = new Date().toISOString();
+        const stories = await allQuery(
+            `SELECT s.*, (SELECT COUNT(*) FROM story_views WHERE story_id = s.id) as views_count
+             FROM stories s 
+             WHERE s.user_id = ? AND s.expires_at > ? 
+             ORDER BY s.created_at DESC`,
+            [userId, now]
+        );
+        return stories;
+    }
+
+    async getStoriesForUser(userId) {
+        const now = new Date().toISOString();
+        const stories = await allQuery(
+            `SELECT s.*, u.name as user_name, u.avatar as user_avatar,
+             (SELECT COUNT(*) FROM story_views WHERE story_id = s.id) as views_count
+             FROM stories s 
+             JOIN users u ON s.user_id = u.id
+             WHERE s.expires_at > ? 
+             ORDER BY s.created_at DESC`,
+            [now]
+        );
+        return stories;
+    }
+
+    async viewStory(storyId, userId) {
+        await runQuery(
+            `INSERT OR IGNORE INTO story_views (story_id, user_id, viewed_at) VALUES (?, ?, ?)`,
+            [storyId, userId, new Date().toISOString()]
         );
     }
 
-    // ---------- ТАЙМЕР АВТОУДАЛЕНИЯ ----------
+    async deleteStory(storyId, userId) {
+        await runQuery(
+            `DELETE FROM stories WHERE id = ? AND user_id = ?`,
+            [storyId, userId]
+        );
+    }
+
+    // ===== ЗВОНКИ =====
+    async createCall(call) {
+        await runQuery(
+            `INSERT INTO calls (id, from_user, to_user, type, status, started_at) VALUES (?, ?, ?, ?, ?, ?)`,
+            [call.id, call.from_user, call.to_user, call.type, call.status, call.started_at]
+        );
+        return call;
+    }
+
+    async updateCallStatus(callId, status, endedAt = null, duration = 0) {
+        await runQuery(
+            `UPDATE calls SET status = ?, ended_at = ?, duration = ? WHERE id = ?`,
+            [status, endedAt || new Date().toISOString(), duration, callId]
+        );
+    }
+
+    async getCalls(userId) {
+        return allQuery(
+            `SELECT * FROM calls WHERE from_user = ? OR to_user = ? ORDER BY started_at DESC LIMIT 50`,
+            [userId, userId]
+        );
+    }
+
+    // ===== АВТОУДАЛЕНИЕ =====
     async setAutoDelete(chatId, seconds) {
-        const deleteAt = seconds ? new Date(Date.now() + seconds * 1000).toISOString() : null;
         await runQuery(
-            `UPDATE chats SET auto_delete_at = ? WHERE id = ?`,
-            [deleteAt, chatId]
+            `UPDATE chats SET auto_delete = ? WHERE id = ?`,
+            [seconds || 0, chatId]
         );
     }
 
     async getAutoDeleteMessages() {
         return allQuery(
             `SELECT * FROM messages WHERE auto_delete_at IS NOT NULL AND auto_delete_at <= datetime('now') AND deleted = 0`
-        );
-    }
-
-    // ---------- ПОИСК ПО СООБЩЕНИЯМ ----------
-    async searchMessages(query, userId) {
-        const chats = await this.getChats(userId);
-        const chatIds = chats.map(c => c.id);
-        if (chatIds.length === 0) return [];
-        return allQuery(
-            `SELECT * FROM messages WHERE chat_id IN (${chatIds.map(() => '?').join(',')}) 
-             AND text LIKE ? AND deleted = 0 ORDER BY created_at DESC LIMIT 50`,
-            [...chatIds, `%${query}%`]
         );
     }
 }

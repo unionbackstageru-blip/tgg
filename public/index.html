@@ -88,29 +88,27 @@
     <div id="mainApp" class="telegram-window" style="display:none;">
         <!-- Левая панель -->
         <div class="left-panel">
-            <!-- Шапка -->
             <div class="left-header">
                 <div class="brand">
                     <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
                         <rect width="28" height="28" rx="8" fill="#6ab2f2"/>
                         <path d="M20 10L14 20L8 10H20Z" fill="white" opacity="0.9"/>
-                        <circle cx="14" cy="14" r="10" fill="white" opacity="0.15"/>
                     </svg>
                     <span>TeleFon</span>
                 </div>
-                <button class="header-btn" onclick="openSettings()"><i class="fas fa-cog"></i></button>
+                <div style="display:flex;gap:4px;">
+                    <button class="header-btn" onclick="openSettings()"><i class="fas fa-cog"></i></button>
+                    <button class="header-btn" onclick="showCreateChat('group')"><i class="fas fa-users"></i></button>
+                </div>
             </div>
             
-            <!-- Поиск -->
             <div class="search-box">
                 <i class="fas fa-search"></i>
                 <input type="text" placeholder="Поиск" id="searchInput">
             </div>
             
-            <!-- Список чатов -->
             <div class="chat-list" id="chatList"></div>
             
-            <!-- Профиль пользователя -->
             <div class="user-profile">
                 <div class="profile-avatar" onclick="openSettings()">
                     <img id="profileAvatarImg" style="display:none;">
@@ -124,27 +122,35 @@
             </div>
         </div>
 
-        <!-- Правая панель (чат) -->
+        <!-- Правая панель -->
         <div class="right-panel" id="rightPanel">
-            <!-- Шапка чата -->
             <div class="chat-header">
                 <div class="mobile-back" id="mobileBack"><i class="fas fa-arrow-left"></i></div>
                 <div class="chat-avatar-header" onclick="openUserProfile()">
                     <img id="chatAvatarImg" style="display:none;">
                     <span id="chatAvatarText">Ч</span>
+                    <div class="online-status" id="chatOnlineDot"></div>
                 </div>
                 <div class="chat-info-header" onclick="openUserProfile()">
                     <h3 id="chatName">Выберите чат</h3>
                     <span id="chatStatus">онлайн</span>
                 </div>
                 <div class="chat-actions">
-                    <button><i class="fas fa-phone"></i></button>
-                    <button><i class="fas fa-video"></i></button>
-                    <button><i class="fas fa-ellipsis-v"></i></button>
+                    <button onclick="startCall()"><i class="fas fa-phone"></i></button>
+                    <button onclick="startVideoCall()"><i class="fas fa-video"></i></button>
+                    <button onclick="openChatSettings()"><i class="fas fa-ellipsis-v"></i></button>
                 </div>
             </div>
 
-            <!-- Сообщения -->
+            <!-- Закрепленное сообщение -->
+            <div id="pinnedMessage" class="pinned-message" style="display:none;">
+                <div class="pinned-content">
+                    <i class="fas fa-thumbtack"></i>
+                    <span id="pinnedText">Закрепленное сообщение</span>
+                </div>
+                <button onclick="unpinMessage()"><i class="fas fa-times"></i></button>
+            </div>
+
             <div class="messages-area" id="messagesArea">
                 <div class="empty-chat">
                     <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
@@ -159,15 +165,36 @@
 
             <!-- Инпут -->
             <div class="chat-input-container">
+                <!-- Ответ на сообщение -->
+                <div id="replyBar" class="reply-bar" style="display:none;">
+                    <div class="reply-content">
+                        <span>↩️ Ответ</span>
+                        <span id="replyText" class="reply-text">Сообщение</span>
+                    </div>
+                    <button onclick="cancelReply()"><i class="fas fa-times"></i></button>
+                </div>
+                
                 <div class="chat-input-wrapper">
-                    <button class="input-btn" id="emojiBtn"><i class="far fa-smile"></i></button>
+                    <button class="input-btn" onclick="toggleEmojiPanel()"><i class="far fa-smile"></i></button>
+                    <button class="input-btn" onclick="recordVoice()" id="voiceBtn"><i class="fas fa-microphone"></i></button>
                     <label class="input-btn" for="fileInput"><i class="fas fa-paperclip"></i></label>
                     <input type="file" id="fileInput" multiple style="display:none;">
                     <input type="text" id="messageInput" placeholder="Сообщение..." disabled>
                     <button id="sendBtn" disabled><i class="fas fa-paper-plane"></i></button>
                 </div>
+                
                 <div id="emojiPanel" class="emoji-panel" style="display:none;">
                     <div class="emoji-grid" id="emojiGrid"></div>
+                </div>
+                
+                <!-- Запись голосового -->
+                <div id="voiceRecording" class="voice-recording" style="display:none;">
+                    <div class="voice-recording-content">
+                        <div class="voice-wave"></div>
+                        <span class="voice-duration" id="voiceDuration">0:00</span>
+                        <button onclick="stopRecording()" class="voice-stop"><i class="fas fa-stop-circle"></i></button>
+                        <button onclick="cancelRecording()" class="voice-cancel"><i class="fas fa-times"></i></button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -201,6 +228,14 @@
                     <i class="fas fa-info-circle" style="margin-top:12px;"></i>
                     <textarea id="settingsBio" placeholder="О себе..." rows="3"></textarea>
                 </div>
+                <div class="settings-section">
+                    <h4>Оформление</h4>
+                    <div class="theme-options">
+                        <button onclick="setTheme('dark')" class="theme-btn dark">Темная</button>
+                        <button onclick="setTheme('light')" class="theme-btn light">Светлая</button>
+                        <button onclick="setTheme('blue')" class="theme-btn blue">Синяя</button>
+                    </div>
+                </div>
                 <button onclick="saveSettings()" class="auth-btn">Сохранить</button>
             </div>
         </div>
@@ -221,24 +256,19 @@
                 <h3 id="profileViewName">Имя</h3>
                 <p id="profileViewUsername">@username</p>
                 <p id="profileViewBio">О себе</p>
-                <div class="profile-info-row">
-                    <i class="fas fa-phone"></i>
-                    <span id="profileViewPhone">+7</span>
-                </div>
-                <div class="profile-info-row">
-                    <i class="fas fa-circle" style="color:#4caf50;font-size:12px;"></i>
-                    <span id="profileViewStatus">онлайн</span>
-                </div>
-                <div class="profile-info-row">
-                    <i class="fas fa-calendar-alt"></i>
-                    <span id="profileViewJoined">В сети с 2024</span>
+                <div class="profile-info-row"><i class="fas fa-phone"></i><span id="profileViewPhone">+7</span></div>
+                <div class="profile-info-row"><i class="fas fa-circle" style="color:#4caf50;font-size:12px;"></i><span id="profileViewStatus">онлайн</span></div>
+                <div class="profile-info-row"><i class="fas fa-calendar-alt"></i><span id="profileViewJoined">В сети с 2024</span></div>
+                <div class="profile-actions">
+                    <button onclick="sendMessageToProfile()" class="profile-btn"><i class="fas fa-comment"></i> Написать</button>
+                    <button onclick="blockUser()" class="profile-btn danger" id="blockBtn"><i class="fas fa-ban"></i> Заблокировать</button>
                 </div>
                 <button onclick="closeUserProfile()" class="auth-btn">Закрыть</button>
             </div>
         </div>
     </div>
 
-    <!-- Создание чата -->
+    <!-- Создание чата/канала -->
     <div id="createChatModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -249,6 +279,10 @@
                 <div class="input-group">
                     <i class="fas fa-user-group"></i>
                     <input type="text" id="chatNameInput" placeholder="Название">
+                </div>
+                <div class="input-group">
+                    <i class="fas fa-at"></i>
+                    <input type="text" id="chatUsernameInput" placeholder="Username канала (опционально)">
                 </div>
                 <div class="input-group" style="align-items:flex-start;">
                     <i class="fas fa-info-circle" style="margin-top:12px;"></i>
@@ -267,23 +301,30 @@
         </div>
     </div>
 
-    <!-- Добавление контакта -->
-    <div id="addContactModal" class="modal">
+    <!-- Настройки чата -->
+    <div id="chatSettingsModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Добавить контакт</h2>
-                <span class="close" onclick="closeModal()">&times;</span>
+                <h2>Настройки чата</h2>
+                <span class="close" onclick="closeChatSettings()">&times;</span>
             </div>
             <div class="modal-body">
-                <div class="input-group">
-                    <i class="fas fa-user"></i>
-                    <input type="text" id="contactName" placeholder="Имя контакта">
+                <div class="settings-item" onclick="setWallpaper()">
+                    <i class="fas fa-image"></i>
+                    <span>Обои чата</span>
                 </div>
-                <div class="input-group">
-                    <i class="fas fa-phone"></i>
-                    <input type="tel" id="contactPhone" placeholder="Номер телефона" value="+7">
+                <div class="settings-item" onclick="setAutoDelete()">
+                    <i class="fas fa-clock"></i>
+                    <span>Автоудаление</span>
                 </div>
-                <button onclick="addContact()" class="auth-btn">Добавить</button>
+                <div class="settings-item" onclick="muteChat()">
+                    <i class="fas fa-bell-slash"></i>
+                    <span>Отключить уведомления</span>
+                </div>
+                <div class="settings-item danger" onclick="leaveChat()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Покинуть чат</span>
+                </div>
             </div>
         </div>
     </div>

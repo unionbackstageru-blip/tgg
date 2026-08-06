@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon - Полная копия Telegram
+   TeleFon - Клиент (ИСПРАВЛЕН)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -107,41 +107,11 @@ const api = {
             body: formData
         });
         return res.json();
-    },
-    async editMessage(messageId, text, userId) {
-        const res = await fetch(`${API_URL}/api/messages/edit`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messageId, text, userId })
-        });
-        return res.json();
-    },
-    async deleteMessage(messageId, userId) {
-        const res = await fetch(`${API_URL}/api/messages/delete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messageId, userId })
-        });
-        return res.json();
-    },
-    async addReaction(messageId, userId, reaction) {
-        const res = await fetch(`${API_URL}/api/messages/reaction`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messageId, userId, reaction })
-        });
-        return res.json();
-    },
-    async pinMessage(chatId, messageId) {
-        await fetch(`${API_URL}/api/messages/pin`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chatId, messageId })
-        });
     }
 };
 
-// ===== ФУНКЦИИ ПОМОЩНИКИ =====
+// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+
 function formatTime(date) {
     if (!date) return '';
     const d = new Date(date);
@@ -185,6 +155,7 @@ function showToast(text, type = 'info', duration = 3000) {
 }
 
 // ===== WEBSOCKET =====
+
 function connectSocket(userId) {
     console.log('🔌 Подключение WebSocket...');
     
@@ -223,36 +194,18 @@ function connectSocket(userId) {
         renderChats();
     });
     
-    socket.on('userTyping', (data) => {
-        if (data.chatId === currentChatId && data.isTyping) {
-            document.getElementById('chatStatus').textContent = 'печатает...';
-        } else if (data.chatId === currentChatId) {
-            updateChatStatus();
-        }
-    });
-    
+    // ===== ВАЖНО: ОБРАБОТКА НОВЫХ СООБЩЕНИЙ БЕЗ ДУБЛЕЙ =====
     socket.on('newMessage', (data) => {
         console.log('📨 Новое сообщение:', data);
+        
+        // Обновляем сообщения в текущем чате
         if (data.chatId === currentChatId) {
             renderMessages(currentChatId);
             api.markAsRead(currentChatId, currentUser.id);
-            if (socket) {
-                socket.emit('messageRead', { messageId: data.message.id, userId: currentUser.id });
-            }
         }
+        
+        // Обновляем список чатов
         renderChats();
-    });
-    
-    socket.on('messageStatus', () => {
-        if (currentChatId) renderMessages(currentChatId);
-    });
-    
-    socket.on('messageDeleted', (data) => {
-        if (data.chatId === currentChatId) renderMessages(currentChatId);
-    });
-    
-    socket.on('messageEdited', (data) => {
-        if (data.chatId === currentChatId) renderMessages(currentChatId);
     });
     
     socket.on('chatsUpdate', (chats) => {
@@ -422,6 +375,7 @@ function logout() {
 }
 
 // ===== ВОССТАНОВЛЕНИЕ СЕССИИ =====
+
 async function restoreSession() {
     const savedUserId = localStorage.getItem('telefon_user_id');
     if (!savedUserId) return false;
@@ -1054,7 +1008,6 @@ function closeUserProfile() {
 
 initEmojiPanel();
 
-// Восстанавливаем сессию
 restoreSession().then(function(restored) {
     if (!restored) {
         console.log('🔐 Сессия не восстановлена');
