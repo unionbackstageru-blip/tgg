@@ -1,5 +1,5 @@
 /* ============================================================
-   Telegram Social Network - Клиент
+   TeleFon Social Network - Клиент
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -10,6 +10,7 @@ let allChats = [];
 let selectedMembers = [];
 let createChatType = 'group';
 let searchTimeout = null;
+let isSocketConnected = false;
 
 // ===== ЭМОДЗИ =====
 const EMOJIS = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','☺️','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✌️','🤟','🤘','👌','🤞','🤙','💪','🦾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💯','💢','💥','🔥','✨','⭐','🌟','💫','☀️','🌈','☁️','⛅','🌧️','🌨️','❄️','☃️','⛄','🌊','🌸','🌺','🌻','🌹','🌷','🌿','🌵','🌲','🌳','🍁','🍂','🍃','🍇','🍈','🍉','🍊','🍋','🍌','🍍','🥭','🍎','🍏','🍐','🍑','🍒','🍓'];
@@ -109,14 +110,48 @@ const api = {
 
 // ===== WEBSOCKET =====
 function connectSocket(userId) {
-    socket = io(API_URL);
+    console.log('🔌 Подключение WebSocket...');
+    
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+        isSocketConnected = false;
+    }
+    
+    socket = io(API_URL, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000
+    });
     
     socket.on('connect', () => {
-        console.log('🔌 WebSocket подключен');
+        console.log('✅ WebSocket подключен');
+        isSocketConnected = true;
+        socket.emit('userOnline', userId);
+        showToast('🟢 Подключено к серверу', 'success');
+    });
+    
+    socket.on('connect_error', (error) => {
+        console.error('❌ WebSocket ошибка:', error);
+        isSocketConnected = false;
+        showToast('⚠️ Ошибка подключения к серверу', 'error');
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('🔌 WebSocket отключен');
+        isSocketConnected = false;
+    });
+    
+    socket.on('reconnect', () => {
+        console.log('🔄 WebSocket переподключен');
+        isSocketConnected = true;
         socket.emit('userOnline', userId);
     });
     
-    socket.on('userStatus', () => renderChats());
+    socket.on('userStatus', () => {
+        renderChats();
+    });
     
     socket.on('newMessage', (data) => {
         console.log('📨 Новое сообщение:', data);
@@ -136,7 +171,7 @@ function connectSocket(userId) {
 
 // ===== ВОССТАНОВЛЕНИЕ СЕССИИ =====
 async function restoreSession() {
-    const savedUserId = localStorage.getItem('telegram_user_id');
+    const savedUserId = localStorage.getItem('telefon_user_id');
     if (!savedUserId) return false;
     
     try {
@@ -265,7 +300,7 @@ function loginUser(user) {
     document.getElementById('mainApp').style.display = 'flex';
     
     updateProfileUI(user);
-    localStorage.setItem('telegram_user_id', user.id);
+    localStorage.setItem('telefon_user_id', user.id);
     
     connectSocket(user.id);
     loadChats();
@@ -292,8 +327,12 @@ function updateProfileUI(user) {
 }
 
 function logout() {
-    if (socket) socket.disconnect();
-    localStorage.removeItem('telegram_user_id');
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+        isSocketConnected = false;
+    }
+    localStorage.removeItem('telefon_user_id');
     currentUser = null;
     currentChatId = null;
     document.getElementById('mainApp').style.display = 'none';
@@ -458,7 +497,6 @@ function renderChats() {
     }
 
     allChats.forEach(chat => {
-        // Используем displayName из базы данных
         const name = chat.displayName || chat.name || 'Чат';
         const lastMsg = chat.last_message || 'Нет сообщений';
         const time = formatTime(chat.last_message_time);
@@ -607,6 +645,11 @@ async function uploadFiles(files) {
             const result = await api.uploadFile(file);
             if (result.success) {
                 console.log('📤 Отправка файла:', result.file);
+                // Проверяем подключение перед отправкой
+                if (!socket || !isSocketConnected) {
+                    showToast('⚠️ Нет подключения к серверу', 'error');
+                    return;
+                }
                 socket.emit('sendMessage', {
                     chatId: currentChatId,
                     senderId: currentUser.id,
@@ -646,25 +689,63 @@ function toggleEmojiPanel() {
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
 
-// ===== ОТПРАВКА =====
+// ===== ОТПРАВКА СООБЩЕНИЙ (ИСПРАВЛЕНО) =====
 
 function sendMessage() {
     const input = document.getElementById('messageInput');
     const text = input.value.trim();
-    if (!text || !currentChatId) {
-        showToast('Введите сообщение или выберите чат', 'error');
+    
+    // Проверяем, что есть сообщение
+    if (!text) {
+        showToast('Введите сообщение', 'error');
         return;
     }
-
-    console.log('📤 Отправка сообщения:', { chatId: currentChatId, text });
-    socket.emit('sendMessage', {
-        chatId: currentChatId,
-        senderId: currentUser.id,
-        text: text,
-        file: null
-    });
-
-    input.value = '';
+    
+    // Проверяем, что выбран чат
+    if (!currentChatId) {
+        showToast('Выберите чат', 'error');
+        return;
+    }
+    
+    // Проверяем, что есть текущий пользователь
+    if (!currentUser) {
+        showToast('Ошибка авторизации', 'error');
+        return;
+    }
+    
+    // ПРОВЕРЯЕМ ПОДКЛЮЧЕНИЕ WEBSOCKET
+    if (!socket) {
+        console.error('❌ Socket не инициализирован');
+        showToast('⚠️ Нет подключения к серверу. Перезагрузите страницу.', 'error');
+        // Пытаемся переподключиться
+        connectSocket(currentUser.id);
+        return;
+    }
+    
+    if (!isSocketConnected) {
+        console.error('❌ Socket не подключен');
+        showToast('⚠️ Потеряно соединение с сервером. Переподключение...', 'error');
+        // Пытаемся переподключиться
+        connectSocket(currentUser.id);
+        return;
+    }
+    
+    console.log('📤 Отправка сообщения:', { chatId: currentChatId, text, socket: !!socket, connected: isSocketConnected });
+    
+    try {
+        socket.emit('sendMessage', {
+            chatId: currentChatId,
+            senderId: currentUser.id,
+            text: text,
+            file: null
+        });
+        
+        input.value = '';
+        showToast('✅ Сообщение отправлено', 'success');
+    } catch (error) {
+        console.error('❌ Ошибка отправки:', error);
+        showToast('❌ Ошибка отправки сообщения', 'error');
+    }
 }
 
 // ===== СОЗДАНИЕ ЧАТА =====
@@ -701,12 +782,13 @@ async function addMemberByUsername() {
 
 function renderMembersList() {
     const container = document.getElementById('membersList');
-    container.innerHTML = selectedMembers.map(id => `
-        <span class="member-tag">
-            ${id}
+    container.innerHTML = selectedMembers.map(id => {
+        // Показываем ID, но лучше найти имя
+        return `<span class="member-tag">
+            Участник ${id.slice(-4)}
             <span class="remove-member" onclick="selectedMembers=selectedMembers.filter(i=>i!=='${id}');renderMembersList();">&times;</span>
-        </span>
-    `).join('');
+        </span>`;
+    }).join('');
 }
 
 async function createChat() {
@@ -836,4 +918,5 @@ restoreSession().then(restored => {
     }
 });
 
-console.log('✅ Telegram Social Network готова!');
+console.log('✅ TeleFon Social Network готова!');
+console.log('📱 Название: TeleFon');

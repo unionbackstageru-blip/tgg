@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Social Network</title>
+    <title>TeleFon Social Network</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
@@ -13,8 +13,12 @@
     <div id="authScreen" class="auth-screen">
         <div class="auth-container">
             <div class="auth-logo">
-                <i class="fab fa-telegram-plane"></i>
-                <h1>Telegram</h1>
+                <!-- ЛОГОТИП TELEFON -->
+                <div class="logo-icon">
+                    <i class="fas fa-phone-alt"></i>
+                    <i class="fas fa-comment-dots"></i>
+                </div>
+                <h1>TeleFon</h1>
                 <p>Социальная сеть</p>
             </div>
             
@@ -82,7 +86,10 @@
     <div id="mainApp" class="telegram-window" style="display:none;">
         <div class="left-panel">
             <div class="left-header">
-                <div class="brand"><i class="fab fa-telegram-plane"></i></div>
+                <div class="brand">
+                    <i class="fas fa-phone-alt"></i>
+                    <span style="color:#e0e0e0;font-weight:600;font-size:18px;">TeleFon</span>
+                </div>
                 <div class="search-box">
                     <i class="fas fa-search"></i>
                     <input type="text" placeholder="Поиск по username" id="searchInput">

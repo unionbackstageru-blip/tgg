@@ -885,3 +885,40 @@ body {
     from { opacity: 0; transform: translateX(-50%) translateY(20px); }
     to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+/* ===== ЛОГОТИП TELEFON ===== */
+.logo-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 48px;
+    color: #6ab2f2;
+}
+
+.logo-icon i:first-child {
+    transform: rotate(30deg);
+    font-size: 40px;
+}
+
+.logo-icon i:last-child {
+    font-size: 34px;
+    color: #5a9bd6;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.brand i {
+    font-size: 24px;
+    color: #6ab2f2;
+    transform: rotate(30deg);
+}
+
+.brand span {
+    color: #e0e0e0;
+    font-weight: 600;
+    font-size: 18px;
+}
