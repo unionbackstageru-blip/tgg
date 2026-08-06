@@ -33,7 +33,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== ВЕРИФИКАЦИЯ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS verifications (
             phone TEXT PRIMARY KEY,
@@ -42,7 +41,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== ЧАТЫ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
@@ -60,7 +58,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== УЧАСТНИКИ ЧАТОВ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
@@ -72,7 +69,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== СООБЩЕНИЯ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -93,7 +89,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== РЕАКЦИИ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS message_reactions (
             message_id TEXT,
@@ -104,7 +99,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== НЕПРОЧИТАННЫЕ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
@@ -113,7 +107,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== ЧЕРНОВИКИ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS drafts (
             chat_id TEXT,
@@ -124,7 +117,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== ПОДПИСЧИКИ КАНАЛОВ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS channel_subscribers (
             channel_id TEXT,
@@ -134,7 +126,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== ИСТОРИИ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS stories (
             id TEXT PRIMARY KEY,
@@ -146,7 +137,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== ПРОСМОТРЫ ИСТОРИЙ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS story_views (
             story_id TEXT,
@@ -156,7 +146,6 @@ db.serialize(() => {
         )
     `);
 
-    // ===== ЗВОНКИ =====
     db.run(`
         CREATE TABLE IF NOT EXISTS calls (
             id TEXT PRIMARY KEY,
@@ -167,6 +156,15 @@ db.serialize(() => {
             started_at TEXT,
             ended_at TEXT,
             duration INTEGER DEFAULT 0
+        )
+    `);
+
+    // ===== ТАБЛИЦА ДЛЯ УДАЛЕННЫХ СООБЩЕНИЙ =====
+    db.run(`
+        CREATE TABLE IF NOT EXISTS deleted_for_me (
+            message_id TEXT,
+            user_id TEXT,
+            PRIMARY KEY (message_id, user_id)
         )
     `);
 
@@ -316,6 +314,7 @@ class Database {
             const participants = await this.getChatParticipants(chat.id);
             chat.participants = participants;
             chat.unread = await this.getUnreadCount(chat.id, userId);
+            chat.isMuted = await this.isChatMuted(chat.id, userId);
             
             if (chat.type === 'private') {
                 const otherUser = participants.find(p => p.user_id !== userId);
@@ -387,6 +386,26 @@ class Database {
         );
     }
 
+    // ===== НОВЫЕ МЕТОДЫ =====
+    async removeParticipant(chatId, userId) {
+        await runQuery(
+            `DELETE FROM chat_participants WHERE chat_id = ? AND user_id = ?`,
+            [chatId, userId]
+        );
+        
+        const participants = await this.getChatParticipants(chatId);
+        if (participants.length === 0) {
+            await runQuery(`DELETE FROM chats WHERE id = ?`, [chatId]);
+        }
+    }
+
+    async setChatWallpaper(chatId, wallpaper) {
+        await runQuery(
+            `UPDATE chats SET wallpaper = ? WHERE id = ?`,
+            [wallpaper, chatId]
+        );
+    }
+
     async muteChat(chatId, userId, until) {
         await runQuery(
             `UPDATE chat_participants SET muted_until = ? WHERE chat_id = ? AND user_id = ?`,
@@ -394,24 +413,39 @@ class Database {
         );
     }
 
-    async setChatWallpaper(chatId, wallpaper) {
-        await runQuery('UPDATE chats SET wallpaper = ? WHERE id = ?', [wallpaper, chatId]);
+    async isChatMuted(chatId, userId) {
+        const result = await getQuery(
+            `SELECT muted_until FROM chat_participants WHERE chat_id = ? AND user_id = ?`,
+            [chatId, userId]
+        );
+        if (!result || !result.muted_until) return false;
+        return new Date(result.muted_until) > new Date();
     }
 
-    async setUserWallpaper(userId, wallpaper) {
-        await runQuery('UPDATE users SET wallpaper = ? WHERE id = ?', [wallpaper, userId]);
+    async deleteMessageForEveryone(messageId) {
+        await runQuery(
+            `UPDATE messages SET deleted = 1, text = 'Сообщение удалено' WHERE id = ?`,
+            [messageId]
+        );
     }
 
-    async setUserTheme(userId, theme) {
-        await runQuery('UPDATE users SET theme = ? WHERE id = ?', [theme, userId]);
+    async deleteMessageForMe(messageId, userId) {
+        await runQuery(
+            `INSERT OR REPLACE INTO deleted_for_me (message_id, user_id) VALUES (?, ?)`,
+            [messageId, userId]
+        );
     }
 
     // ===== СООБЩЕНИЯ =====
-    async getMessages(chatId, limit = 50) {
-        return allQuery(
-            `SELECT * FROM messages WHERE chat_id = ? AND deleted = 0 ORDER BY created_at ASC LIMIT ?`,
-            [chatId, limit]
+    async getMessages(chatId, userId, limit = 50) {
+        const messages = await allQuery(
+            `SELECT m.* FROM messages m
+             WHERE m.chat_id = ? AND m.deleted = 0
+             AND NOT EXISTS (SELECT 1 FROM deleted_for_me dfm WHERE dfm.message_id = m.id AND dfm.user_id = ?)
+             ORDER BY m.created_at ASC LIMIT ?`,
+            [chatId, userId, limit]
         );
+        return messages;
     }
 
     async createMessage(message) {

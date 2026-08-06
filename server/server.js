@@ -460,7 +460,7 @@ app.post('/api/messages/delete', async (req, res) => {
     }
 });
 
-// ===== РЕАКЦИИ (ДОБАВЛЯЕМ НЕДОСТАЮЩИЙ РОУТ) =====
+// ===== РЕАКЦИИ =====
 app.get('/api/messages/reactions/:messageId', async (req, res) => {
     try {
         const reactions = await db.getReactions(req.params.messageId);
@@ -611,6 +611,78 @@ app.post('/api/drafts', async (req, res) => {
     }
 });
 
+// ===== НОВЫЕ РОУТЫ ДЛЯ ФУНКЦИЙ =====
+
+// Выход из чата
+app.post('/api/chat/leave', async (req, res) => {
+    try {
+        const { chatId, userId } = req.body;
+        await db.removeParticipant(chatId, userId);
+        
+        const participants = await db.getChatParticipants(chatId);
+        for (const p of participants) {
+            const socketId = onlineUsers.get(p.user_id);
+            if (socketId) {
+                const chats = await db.getChats(p.user_id);
+                io.to(socketId).emit('chatsUpdate', chats);
+            }
+        }
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Leave chat error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Установка обоев
+app.post('/api/chat/wallpaper', async (req, res) => {
+    try {
+        const { chatId, wallpaper } = req.body;
+        await db.setChatWallpaper(chatId, wallpaper);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Wallpaper error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Отключение уведомлений
+app.post('/api/chat/mute', async (req, res) => {
+    try {
+        const { chatId, userId, until } = req.body;
+        await db.muteChat(chatId, userId, until);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Mute error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Удаление сообщения у всех
+app.post('/api/messages/delete-for-everyone', async (req, res) => {
+    try {
+        const { messageId } = req.body;
+        await db.deleteMessageForEveryone(messageId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete for everyone error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Удаление сообщения только у себя
+app.post('/api/messages/delete-for-me', async (req, res) => {
+    try {
+        const { messageId, userId } = req.body;
+        await db.deleteMessageForMe(messageId, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete for me error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
 // ===== WEBSOCKET =====
 
 const onlineUsers = new Map();
@@ -666,7 +738,6 @@ io.on('connection', (socket) => {
                 }
             }
             
-            // Обновляем чаты для всех участников
             const uniqueUsers = [...new Set(participants.map(p => p.user_id))];
             for (const userId of uniqueUsers) {
                 const socketId = onlineUsers.get(userId);

@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon - Клиент (ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ - БЕЗ ДУБЛЕЙ)
+   TeleFon - Клиент (ПОЛНАЯ ВЕРСИЯ)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -202,6 +202,47 @@ const api = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chatId, userId, text })
         });
+    },
+    // ===== НОВЫЕ МЕТОДЫ =====
+    async leaveChat(chatId, userId) {
+        const res = await fetch(`${API_URL}/api/chat/leave`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, userId })
+        });
+        return res.json();
+    },
+    async setChatWallpaper(chatId, wallpaper) {
+        const res = await fetch(`${API_URL}/api/chat/wallpaper`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, wallpaper })
+        });
+        return res.json();
+    },
+    async muteChat(chatId, userId, until) {
+        const res = await fetch(`${API_URL}/api/chat/mute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, userId, until })
+        });
+        return res.json();
+    },
+    async deleteMessageForEveryone(messageId) {
+        const res = await fetch(`${API_URL}/api/messages/delete-for-everyone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId })
+        });
+        return res.json();
+    },
+    async deleteMessageForMe(messageId, userId) {
+        const res = await fetch(`${API_URL}/api/messages/delete-for-me`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId, userId })
+        });
+        return res.json();
     }
 };
 
@@ -343,18 +384,15 @@ function connectSocket(userId) {
         }
     });
     
-    // ===== ИСПРАВЛЕНО: БЕЗ ДУБЛИРОВАНИЯ =====
     socket.on('newMessage', (data) => {
         console.log('📨 Новое сообщение:', data);
         
-        // Проверяем дубликат по ID
         if (lastMessageId === data.message.id) {
             console.log('⚠️ Дубликат сообщения, пропускаем');
             return;
         }
         lastMessageId = data.message.id;
         
-        // Обновляем только то, что нужно
         if (data.chatId === currentChatId) {
             renderMessages(currentChatId);
             api.markAsRead(currentChatId, currentUser.id);
@@ -695,6 +733,7 @@ function renderChats() {
         const lastMsg = chat.last_message || 'Нет сообщений';
         const time = formatTime(chat.last_message_time);
         const unread = chat.unread || 0;
+        const isMuted = chat.isMuted || false;
 
         const item = document.createElement('div');
         item.className = `chat-item ${chat.id === currentChatId ? 'active' : ''}`;
@@ -706,6 +745,7 @@ function renderChats() {
             <div class="chat-info">
                 <div class="name">
                     ${name}
+                    ${isMuted ? '🔇' : ''}
                     ${unread > 0 ? `<span class="badge">${unread}</span>` : ''}
                 </div>
                 <div class="last-msg">${lastMsg}</div>
@@ -759,7 +799,15 @@ async function openChat(chatId) {
         avatarImg.style.display = 'none';
     }
     
-    // Загружаем черновик
+    // Применяем обои если есть
+    if (chat.wallpaper) {
+        document.getElementById('messagesArea').style.backgroundImage = `url(${chat.wallpaper})`;
+        document.getElementById('messagesArea').style.backgroundSize = 'cover';
+        document.getElementById('messagesArea').style.backgroundPosition = 'center';
+    } else {
+        document.getElementById('messagesArea').style.backgroundImage = 'none';
+    }
+    
     try {
         const draft = await api.getDraft(chatId, currentUser.id);
         if (draft.draft) {
@@ -785,10 +833,8 @@ async function renderMessages(chatId) {
     const area = document.getElementById('messagesArea');
     if (!area) return;
     
-    // Получаем сообщения
     const messages = await api.getMessages(chatId);
     
-    // Проверяем хеш чтобы не перерисовывать если не изменилось
     const hash = messages.map(m => m.id).join('-');
     if (area.dataset.hash === hash) {
         console.log('⚠️ Сообщения не изменились, пропускаем перерисовку');
@@ -818,17 +864,14 @@ async function renderMessages(chatId) {
         const time = formatTime(msg.created_at);
         let content = '';
         
-        // Ответ
         if (msg.reply_to) {
             content += `<div class="reply-to">↩️ Ответ</div>`;
         }
         
-        // Текст
         if (msg.text) {
             content += msg.text;
         }
         
-        // Файл
         if (msg.file) {
             try {
                 const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
@@ -864,23 +907,29 @@ async function renderMessages(chatId) {
             } catch (e) {}
         }
         
-        // Голосовое
+        // ===== ГОЛОСОВОЕ СООБЩЕНИЕ =====
         if (msg.voice_duration > 0) {
             content += `
                 <div class="voice-message">
-                    <button class="voice-play" onclick="playVoice(this, '${msg.file}')"><i class="fas fa-play"></i></button>
-                    <div class="voice-waveform"></div>
+                    <button class="voice-play" onclick="playVoice(this, '${msg.file}')">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <div class="voice-waveform">
+                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                    </div>
                     <span class="voice-duration-text">${formatDuration(msg.voice_duration)}</span>
                 </div>
             `;
         }
         
-        // Редактировано
         if (msg.edited_at) {
             content += ` <span style="font-size:11px;color:#888;">(ред.)</span>`;
         }
         
-        // Статус
         let statusIcon = '';
         if (isSent) {
             if (msg.status === 'sent') {
@@ -892,10 +941,8 @@ async function renderMessages(chatId) {
             }
         }
         
-        // Реакции
         const reactionsHtml = `<div class="message-reactions" id="reactions-${msg.id}"></div>`;
         
-        // Меню действий
         const actionsHtml = `
             <div class="message-actions">
                 ${isSent ? `<button onclick="editMessage('${msg.id}')" title="Редактировать"><i class="fas fa-edit"></i></button>` : ''}
@@ -918,7 +965,6 @@ async function renderMessages(chatId) {
         
         area.appendChild(div);
         
-        // Загружаем реакции
         loadReactions(msg.id);
     });
 
@@ -1038,14 +1084,28 @@ async function editMessage(messageId) {
     }
 }
 
+// ===== УДАЛЕНИЕ СООБЩЕНИЯ (С ВЫБОРОМ) =====
 async function deleteMessage(messageId) {
-    if (!confirm('Удалить сообщение?')) return;
-    const result = await api.deleteMessage(messageId, currentUser.id);
+    const choice = confirm('Удалить сообщение:\n\n"OK" - удалить у всех\n"Отмена" - удалить только у себя');
+    
+    let result;
+    if (choice) {
+        result = await api.deleteMessageForEveryone(messageId);
+        if (result.success) {
+            showToast('🗑️ Сообщение удалено у всех', 'success');
+            if (socket) {
+                socket.emit('messageDeleted', { messageId, chatId: currentChatId });
+            }
+        }
+    } else {
+        result = await api.deleteMessageForMe(messageId, currentUser.id);
+        if (result.success) {
+            showToast('🗑️ Сообщение удалено у вас', 'success');
+        }
+    }
+    
     if (result.success) {
         renderMessages(currentChatId);
-        if (socket) {
-            socket.emit('messageDeleted', { messageId, chatId: currentChatId });
-        }
     }
 }
 
@@ -1433,25 +1493,85 @@ function closeChatSettings() {
     document.getElementById('chatSettingsModal').classList.remove('show');
 }
 
+// ===== ОБОИ ЧАТА =====
 function setWallpaper() {
-    showToast('🖼️ Выберите обои для чата', 'info');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        try {
+            const reader = new FileReader();
+            reader.onload = async function(event) {
+                const wallpaper = event.target.result;
+                const result = await api.setChatWallpaper(currentChatId, wallpaper);
+                if (result.success) {
+                    showToast('🖼️ Обои обновлены!', 'success');
+                    document.getElementById('messagesArea').style.backgroundImage = `url(${wallpaper})`;
+                    document.getElementById('messagesArea').style.backgroundSize = 'cover';
+                    document.getElementById('messagesArea').style.backgroundPosition = 'center';
+                }
+            };
+            reader.readAsDataURL(file);
+        } catch (error) {
+            showToast('❌ Ошибка установки обоев', 'error');
+        }
+    };
+    input.click();
+}
+
+// ===== ОТКЛЮЧЕНИЕ УВЕДОМЛЕНИЙ =====
+async function muteChat() {
+    const options = ['На 1 час', 'На 8 часов', 'На 1 день', 'Навсегда', 'Отключить'];
+    const choice = prompt('Выберите время:\n1 - 1 час\n2 - 8 часов\n3 - 1 день\n4 - Навсегда\n5 - Отключить');
+    
+    if (!choice) return;
+    
+    let until = null;
+    const now = new Date();
+    switch(choice) {
+        case '1': until = new Date(now.getTime() + 60*60*1000).toISOString(); break;
+        case '2': until = new Date(now.getTime() + 8*60*60*1000).toISOString(); break;
+        case '3': until = new Date(now.getTime() + 24*60*60*1000).toISOString(); break;
+        case '4': until = '2999-12-31T23:59:59.999Z'; break;
+        case '5': until = null; break;
+        default: return;
+    }
+    
+    const result = await api.muteChat(currentChatId, currentUser.id, until);
+    if (result.success) {
+        showToast(until ? '🔇 Уведомления отключены' : '🔔 Уведомления включены', 'success');
+        renderChats();
+    }
+}
+
+// ===== ВЫХОД ИЗ ЧАТА =====
+async function leaveChat() {
+    if (!confirm('Вы уверены, что хотите покинуть чат?')) return;
+    
+    const result = await api.leaveChat(currentChatId, currentUser.id);
+    if (result.success) {
+        showToast('👋 Вы покинули чат', 'info');
+        closeChatSettings();
+        currentChatId = null;
+        loadChats();
+        document.getElementById('messagesArea').innerHTML = `
+            <div class="empty-chat">
+                <p>Выберите чат</p>
+                <span>Начните общение</span>
+            </div>
+        `;
+        document.getElementById('messageInput').disabled = true;
+        document.getElementById('sendBtn').disabled = true;
+    }
 }
 
 function setAutoDelete() {
     const seconds = prompt('Время автоудаления в секундах (0 - отключить):', '0');
     if (seconds !== null) {
         showToast('⏰ Автоудаление установлено на ' + seconds + ' сек', 'success');
-    }
-}
-
-function muteChat() {
-    showToast('🔇 Уведомления отключены', 'success');
-}
-
-function leaveChat() {
-    if (confirm('Покинуть чат?')) {
-        showToast('👋 Вы покинули чат', 'info');
-        closeChatSettings();
     }
 }
 
