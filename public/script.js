@@ -137,6 +137,15 @@ const api = {
             body: JSON.stringify({ channelId, userId })
         });
         return res.json();
+    },
+
+    async restoreSession(userId) {
+        const res = await fetch(`${API_URL}/api/restore-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId })
+        });
+        return res.json();
     }
 };
 
@@ -170,6 +179,23 @@ function connectSocket(userId) {
         allChats = chats;
         renderChats();
     });
+}
+
+// ===== ВОССТАНОВЛЕНИЕ СЕССИИ =====
+async function restoreSession() {
+    const savedUserId = localStorage.getItem('telegram_user_id');
+    if (!savedUserId) return false;
+    
+    try {
+        const result = await api.restoreSession(savedUserId);
+        if (result.success && result.user) {
+            loginUser(result.user);
+            return true;
+        }
+    } catch (error) {
+        console.log('Сессия не восстановлена:', error);
+    }
+    return false;
 }
 
 // ===== АВТОРИЗАЦИЯ =====
@@ -295,6 +321,9 @@ function loginUser(user) {
     
     updateProfileUI(user);
     
+    // СОХРАНЯЕМ СЕССИЮ
+    localStorage.setItem('telegram_user_id', user.id);
+    
     connectSocket(user.id);
     loadChats();
     showToast(`Добро пожаловать, ${user.name}!`, 'success');
@@ -321,6 +350,7 @@ function updateProfileUI(user) {
 
 function logout() {
     if (socket) socket.disconnect();
+    localStorage.removeItem('telegram_user_id');
     currentUser = null;
     currentChatId = null;
     document.getElementById('mainApp').style.display = 'none';
@@ -365,7 +395,6 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
             img.src = event.target.result;
             img.style.display = 'block';
             document.getElementById('settingsAvatarText').style.display = 'none';
-            // Сохраняем аватар во временную переменную
             currentUser.avatar = event.target.result;
         };
         reader.readAsDataURL(file);
@@ -1004,9 +1033,16 @@ function showToast(text, type = 'info', duration = 3000) {
     setTimeout(() => toast.remove(), duration);
 }
 
-// ===== ИНИЦИАЛИЗАЦИЯ =====
+// ===== ЗАПУСК =====
 
 initEmojiPanel();
 
+// Восстанавливаем сессию при загрузке
+restoreSession().then(restored => {
+    if (!restored) {
+        console.log('🔐 Сессия не восстановлена, показываем вход');
+    }
+});
+
 console.log('✅ Telegram Social Network готова к работе!');
-console.log('📢 Добавлены: настройки, аватарки, username, поиск, каналы, группы!');
+console.log('📢 Добавлены: настройки, аватарки, username, поиск, каналы, группы, сессии!');

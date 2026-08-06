@@ -26,7 +26,7 @@ const io = socketIo(server, {
         origin: "*",
         methods: ["GET", "POST"]
     },
-    maxHttpBufferSize: 50 * 1024 * 1024 // 50MB для файлов
+    maxHttpBufferSize: 50 * 1024 * 1024
 });
 
 // ===== MIDDLEWARE =====
@@ -218,13 +218,17 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// ===== НАСТРОЙКИ =====
-
-// Обновление профиля
+// ===== ОБНОВЛЕНИЕ ПРОФИЛЯ =====
 app.post('/api/update-profile', async (req, res) => {
     try {
         const { userId, name, username, bio, avatar } = req.body;
         console.log('📝 Обновление профиля:', { userId, name, username, bio });
+        
+        // Проверяем, существует ли пользователь
+        const user = await db.getUserById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
         
         // Проверяем, свободен ли username
         if (username) {
@@ -234,15 +238,60 @@ app.post('/api/update-profile', async (req, res) => {
             }
         }
         
+        // Собираем данные для обновления
         const updateData = {};
         if (name) updateData.name = name;
         if (username) updateData.username = username;
         if (bio !== undefined) updateData.bio = bio;
-        if (avatar !== undefined) updateData.avatar = avatar;
+        if (avatar !== undefined && avatar !== user.avatar) updateData.avatar = avatar;
         
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: 'Нет данных для обновления' });
+        }
+        
+        console.log('📝 Обновляем поля:', Object.keys(updateData));
         await db.updateUser(userId, updateData);
         
+        // Получаем обновлённого пользователя
+        const updatedUser = await db.getUserById(userId);
+        console.log('✅ Профиль обновлён для:', updatedUser.name);
+        
+        res.json({
+            success: true,
+            user: {
+                id: updatedUser.id,
+                name: updatedUser.name,
+                username: updatedUser.username,
+                phone: updatedUser.phone,
+                avatar: updatedUser.avatar,
+                bio: updatedUser.bio,
+                verified: updatedUser.verified === 1
+            }
+        });
+    } catch (error) {
+        console.error('❌ Update profile error:', error);
+        res.status(500).json({ error: 'Ошибка сервера: ' + error.message });
+    }
+});
+
+// ===== ВОССТАНОВЛЕНИЕ СЕССИИ =====
+app.post('/api/restore-session', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        console.log('🔄 Восстановление сессии:', userId);
+        
+        if (!userId) {
+            return res.status(400).json({ error: 'ID пользователя не указан' });
+        }
+        
         const user = await db.getUserById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        
+        await db.setUserOnline(user.id, true);
+        console.log(`✅ Сессия восстановлена для ${user.name}`);
+        
         res.json({
             success: true,
             user: {
@@ -256,14 +305,12 @@ app.post('/api/update-profile', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('❌ Update profile error:', error);
-        res.status(500).json({ error: 'Ошибка сервера: ' + error.message });
+        console.error('❌ Restore session error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
 
 // ===== ПОИСК =====
-
-// Поиск пользователей по username или имени
 app.get('/api/search/:query', async (req, res) => {
     try {
         const { query } = req.params;
@@ -284,8 +331,6 @@ app.get('/api/search/:query', async (req, res) => {
 });
 
 // ===== КАНАЛЫ И ГРУППЫ =====
-
-// Создать чат (группу или канал)
 app.post('/api/create-chat', async (req, res) => {
     try {
         const { name, type, createdBy, participants, description, avatar } = req.body;
@@ -305,7 +350,6 @@ app.post('/api/create-chat', async (req, res) => {
             avatar || null
         );
         
-        // Для канала сразу подписываем создателя
         if (type === 'channel') {
             await db.subscribeToChannel(chat.id, createdBy);
         }
@@ -326,7 +370,6 @@ app.post('/api/create-chat', async (req, res) => {
     }
 });
 
-// Подписаться на канал
 app.post('/api/subscribe', async (req, res) => {
     try {
         const { channelId, userId } = req.body;
@@ -338,7 +381,6 @@ app.post('/api/subscribe', async (req, res) => {
     }
 });
 
-// Отписаться от канала
 app.post('/api/unsubscribe', async (req, res) => {
     try {
         const { channelId, userId } = req.body;

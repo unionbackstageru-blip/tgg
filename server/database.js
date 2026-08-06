@@ -4,6 +4,7 @@ const fs = require('fs');
 
 console.log('📦 Инициализация базы данных...');
 
+// ===== СОЗДАЁМ ПАПКУ ДЛЯ ДАННЫХ =====
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -21,9 +22,39 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.log('✅ База данных открыта');
 });
 
+// ===== МИГРАЦИЯ: ДОБАВЛЯЕМ НЕДОСТАЮЩИЕ КОЛОНКИ =====
+db.serialize(() => {
+    // Проверяем и добавляем колонку username
+    db.run(`ALTER TABLE users ADD COLUMN username TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column name')) {
+            console.log('⚠️ username уже существует или ошибка:', err.message);
+        } else if (!err) {
+            console.log('✅ Добавлена колонка username');
+        }
+    });
+
+    // Проверяем и добавляем колонку bio
+    db.run(`ALTER TABLE users ADD COLUMN bio TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column name')) {
+            console.log('⚠️ bio уже существует или ошибка:', err.message);
+        } else if (!err) {
+            console.log('✅ Добавлена колонка bio');
+        }
+    });
+
+    // Проверяем и добавляем колонку avatar
+    db.run(`ALTER TABLE users ADD COLUMN avatar TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column name')) {
+            console.log('⚠️ avatar уже существует или ошибка:', err.message);
+        } else if (!err) {
+            console.log('✅ Добавлена колонка avatar');
+        }
+    });
+});
+
 // ===== СОЗДАЁМ ТАБЛИЦЫ =====
 db.serialize(() => {
-    // Пользователи (добавлены username, bio, avatar)
+    // Пользователи (с полной структурой)
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -47,7 +78,6 @@ db.serialize(() => {
         )
     `);
 
-    // Чаты (добавлен тип: private, group, channel)
     db.run(`
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
@@ -92,7 +122,6 @@ db.serialize(() => {
         )
     `);
 
-    // Подписки на каналы
     db.run(`
         CREATE TABLE IF NOT EXISTS channel_subscribers (
             channel_id TEXT,
@@ -105,13 +134,17 @@ db.serialize(() => {
     console.log('✅ Все таблицы созданы');
 });
 
-// ===== ФУНКЦИИ =====
+// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.run(sql, params, function(err) {
-            if (err) reject(err);
-            else resolve(this);
+            if (err) {
+                console.error('❌ runQuery ошибка:', err.message);
+                reject(err);
+            } else {
+                resolve(this);
+            }
         });
     });
 }
@@ -119,8 +152,12 @@ function runQuery(sql, params = []) {
 function getQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.get(sql, params, (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
+            if (err) {
+                console.error('❌ getQuery ошибка:', err.message);
+                reject(err);
+            } else {
+                resolve(row);
+            }
         });
     });
 }
@@ -128,33 +165,59 @@ function getQuery(sql, params = []) {
 function allQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.all(sql, params, (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
+            if (err) {
+                console.error('❌ allQuery ошибка:', err.message);
+                reject(err);
+            } else {
+                resolve(rows);
+            }
         });
     });
 }
 
+// ===== КЛАСС ДЛЯ РАБОТЫ С БД =====
+
 class Database {
-    // ===== ПОЛЬЗОВАТЕЛИ =====
+    // ---------- ПОЛЬЗОВАТЕЛИ ----------
     async getUser(phone) {
-        return getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
+        try {
+            return await getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
+        } catch (error) {
+            console.error('getUser error:', error);
+            return null;
+        }
     }
 
     async getUserById(id) {
-        return getQuery('SELECT * FROM users WHERE id = ?', [id]);
+        try {
+            return await getQuery('SELECT * FROM users WHERE id = ?', [id]);
+        } catch (error) {
+            console.error('getUserById error:', error);
+            return null;
+        }
     }
 
     async getUserByUsername(username) {
-        return getQuery('SELECT * FROM users WHERE username = ?', [username]);
+        try {
+            return await getQuery('SELECT * FROM users WHERE username = ?', [username]);
+        } catch (error) {
+            console.error('getUserByUsername error:', error);
+            return null;
+        }
     }
 
     async searchUsers(query) {
-        return allQuery(
-            `SELECT * FROM users WHERE 
-             name LIKE ? OR phone LIKE ? OR username LIKE ? 
-             ORDER BY name ASC LIMIT 20`,
-            [`%${query}%`, `%${query}%`, `%${query}%`]
-        );
+        try {
+            return await allQuery(
+                `SELECT * FROM users WHERE 
+                 name LIKE ? OR phone LIKE ? OR username LIKE ? 
+                 ORDER BY name ASC LIMIT 20`,
+                [`%${query}%`, `%${query}%`, `%${query}%`]
+            );
+        } catch (error) {
+            console.error('searchUsers error:', error);
+            return [];
+        }
     }
 
     async createUser(user) {
@@ -181,6 +244,7 @@ class Database {
             `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
             values
         );
+        console.log('✅ Обновлены поля:', fields.join(', '));
     }
 
     async verifyUser(phone) {
@@ -191,7 +255,7 @@ class Database {
         await runQuery('UPDATE users SET online = ? WHERE id = ?', [online ? 1 : 0, userId]);
     }
 
-    // ===== ВЕРИФИКАЦИЯ =====
+    // ---------- ВЕРИФИКАЦИЯ ----------
     async saveVerification(phone, code, expires) {
         await runQuery(
             `INSERT OR REPLACE INTO verifications (phone, code, expires) VALUES (?, ?, ?)`,
@@ -207,7 +271,7 @@ class Database {
         await runQuery('DELETE FROM verifications WHERE phone = ?', [phone]);
     }
 
-    // ===== ЧАТЫ =====
+    // ---------- ЧАТЫ ----------
     async getChats(userId) {
         const chats = await allQuery(
             `SELECT c.* FROM chats c 
@@ -293,7 +357,7 @@ class Database {
         );
     }
 
-    // ===== КАНАЛЫ =====
+    // ---------- КАНАЛЫ ----------
     async getChannelSubscribers(channelId) {
         const rows = await allQuery(
             `SELECT user_id FROM channel_subscribers WHERE channel_id = ?`,
@@ -318,7 +382,7 @@ class Database {
         await this.removeParticipant(channelId, userId);
     }
 
-    // ===== СООБЩЕНИЯ =====
+    // ---------- СООБЩЕНИЯ ----------
     async getMessages(chatId, limit = 100) {
         return allQuery(
             `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC LIMIT ?`,
