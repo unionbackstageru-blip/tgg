@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon - Клиент (ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ)
+   TeleFon - Клиент (ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ - БЕЗ ДУБЛЕЙ)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -19,6 +19,7 @@ let isRecording = false;
 let recordingStartTime = null;
 let recordingTimer = null;
 let voiceDuration = 0;
+let lastMessageId = null;
 
 // ===== API =====
 const api = {
@@ -157,7 +158,6 @@ const api = {
         });
         return res.json();
     },
-    // ===== ДОБАВЛЯЕМ НЕДОСТАЮЩИЙ МЕТОД =====
     async getReactions(messageId) {
         const res = await fetch(`${API_URL}/api/messages/reactions/${messageId}`);
         return res.json();
@@ -343,20 +343,18 @@ function connectSocket(userId) {
         }
     });
     
-    // ===== ИСПРАВЛЕННАЯ ОБРАБОТКА НОВЫХ СООБЩЕНИЙ (БЕЗ ДУБЛЕЙ) =====
-    let lastMessageId = null;
-    
+    // ===== ИСПРАВЛЕНО: БЕЗ ДУБЛИРОВАНИЯ =====
     socket.on('newMessage', (data) => {
         console.log('📨 Новое сообщение:', data);
         
-        // Проверяем дубликат
+        // Проверяем дубликат по ID
         if (lastMessageId === data.message.id) {
             console.log('⚠️ Дубликат сообщения, пропускаем');
             return;
         }
         lastMessageId = data.message.id;
         
-        // Обновляем сообщения в текущем чате
+        // Обновляем только то, что нужно
         if (data.chatId === currentChatId) {
             renderMessages(currentChatId);
             api.markAsRead(currentChatId, currentUser.id);
@@ -786,9 +784,19 @@ async function openChat(chatId) {
 async function renderMessages(chatId) {
     const area = document.getElementById('messagesArea');
     if (!area) return;
-    area.innerHTML = '';
-
+    
+    // Получаем сообщения
     const messages = await api.getMessages(chatId);
+    
+    // Проверяем хеш чтобы не перерисовывать если не изменилось
+    const hash = messages.map(m => m.id).join('-');
+    if (area.dataset.hash === hash) {
+        console.log('⚠️ Сообщения не изменились, пропускаем перерисовку');
+        return;
+    }
+    area.dataset.hash = hash;
+    
+    area.innerHTML = '';
     
     if (messages.length === 0) {
         area.innerHTML = `
@@ -951,7 +959,6 @@ async function toggleReaction(messageId, reaction) {
     const container = document.getElementById('reactions-' + messageId);
     if (!container) return;
     
-    // Проверяем, есть ли уже реакция от пользователя
     const existing = container.querySelector(`.reaction`);
     if (existing && existing.textContent.includes(reaction)) {
         await api.removeReaction(messageId, currentUser.id);
@@ -1001,7 +1008,6 @@ function sendMessage() {
     socket.emit('sendMessage', data);
     input.value = '';
     
-    // Сохраняем черновик
     api.saveDraft(currentChatId, currentUser.id, '');
 }
 
@@ -1076,7 +1082,6 @@ function recordVoice() {
             document.getElementById('voiceRecording').style.display = 'block';
             document.getElementById('voiceBtn').innerHTML = '<i class="fas fa-stop"></i>';
             
-            // Создаем волны
             const waveContainer = document.querySelector('.voice-wave');
             waveContainer.innerHTML = '';
             for (let i = 0; i < 20; i++) {
@@ -1087,7 +1092,6 @@ function recordVoice() {
                 waveContainer.appendChild(bar);
             }
             
-            // Таймер
             recordingTimer = setInterval(() => {
                 const elapsed = (Date.now() - recordingStartTime) / 1000;
                 document.getElementById('voiceDuration').textContent = formatDuration(elapsed);
@@ -1232,7 +1236,6 @@ async function loadUserProfile(userId) {
             avatarImg.style.display = 'none';
         }
         
-        // Проверяем, заблокирован ли пользователь
         const blockBtn = document.getElementById('blockBtn');
         blockBtn.innerHTML = '<i class="fas fa-ban"></i> Заблокировать';
         blockBtn.onclick = () => blockUser();
@@ -1530,7 +1533,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 sendMessage();
             }
         });
-        // Сохраняем черновик
         messageInput.addEventListener('input', function() {
             if (currentChatId) {
                 api.saveDraft(currentChatId, currentUser.id, this.value);

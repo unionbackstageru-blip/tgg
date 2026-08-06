@@ -460,7 +460,7 @@ app.post('/api/messages/delete', async (req, res) => {
     }
 });
 
-// ===== ДОБАВЛЯЕМ НЕДОСТАЮЩИЙ РОУТ ДЛЯ РЕАКЦИЙ =====
+// ===== РЕАКЦИИ (ДОБАВЛЯЕМ НЕДОСТАЮЩИЙ РОУТ) =====
 app.get('/api/messages/reactions/:messageId', async (req, res) => {
     try {
         const reactions = await db.getReactions(req.params.messageId);
@@ -666,7 +666,7 @@ io.on('connection', (socket) => {
                 }
             }
             
-            // Обновляем чаты для всех участников (только 1 раз)
+            // Обновляем чаты для всех участников
             const uniqueUsers = [...new Set(participants.map(p => p.user_id))];
             for (const userId of uniqueUsers) {
                 const socketId = onlineUsers.get(userId);
