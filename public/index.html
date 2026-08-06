@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TeleFon Social Network</title>
+    <title>TeleFon</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
@@ -14,8 +14,11 @@
         <div class="auth-container">
             <div class="auth-logo">
                 <div class="logo-icon">
-                    <i class="fas fa-phone-alt"></i>
-                    <i class="fas fa-comment-dots"></i>
+                    <svg width="60" height="60" viewBox="0 0 60 60" fill="none">
+                        <rect width="60" height="60" rx="16" fill="#6ab2f2"/>
+                        <path d="M42 20L30 38L18 20H42Z" fill="white" opacity="0.9"/>
+                        <circle cx="30" cy="30" r="22" fill="white" opacity="0.15"/>
+                    </svg>
                 </div>
                 <h1>TeleFon</h1>
                 <p>Социальная сеть</p>
@@ -83,110 +86,109 @@
 
     <!-- ===== ОСНОВНОЕ ОКНО ===== -->
     <div id="mainApp" class="telegram-window" style="display:none;">
+        <!-- Левая панель -->
         <div class="left-panel">
+            <!-- Шапка -->
             <div class="left-header">
                 <div class="brand">
-                    <i class="fas fa-phone-alt"></i>
+                    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                        <rect width="28" height="28" rx="8" fill="#6ab2f2"/>
+                        <path d="M20 10L14 20L8 10H20Z" fill="white" opacity="0.9"/>
+                        <circle cx="14" cy="14" r="10" fill="white" opacity="0.15"/>
+                    </svg>
                     <span>TeleFon</span>
                 </div>
-                <div class="search-box">
-                    <i class="fas fa-search"></i>
-                    <input type="text" placeholder="Поиск" id="searchInput">
-                </div>
+                <button class="header-btn" onclick="openSettings()"><i class="fas fa-cog"></i></button>
             </div>
             
-            <div class="contacts-header">
-                <span>Мои чаты</span>
-                <div style="display:flex;gap:8px;">
-                    <button onclick="showCreateChat('group')" title="Создать группу"><i class="fas fa-users"></i></button>
-                    <button onclick="showCreateChat('channel')" title="Создать канал"><i class="fas fa-broadcast"></i></button>
-                    <button onclick="showAddContact()"><i class="fas fa-user-plus"></i></button>
-                </div>
+            <!-- Поиск -->
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Поиск" id="searchInput">
             </div>
             
-            <div class="chat-list" id="chatList">
-                <div style="padding:40px 20px;text-align:center;color:#6a6a6a;">
-                    <p>У вас пока нет чатов</p>
-                    <p style="font-size:13px;margin-top:8px;">Добавьте контакт или создайте группу</p>
-                </div>
-            </div>
+            <!-- Список чатов -->
+            <div class="chat-list" id="chatList"></div>
             
+            <!-- Профиль пользователя -->
             <div class="user-profile">
                 <div class="profile-avatar" onclick="openSettings()">
-                    <img id="profileAvatarImg" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:none;">
+                    <img id="profileAvatarImg" style="display:none;">
                     <span id="profileAvatarText">U</span>
                 </div>
-                <div class="profile-info" onclick="openSettings()" style="cursor:pointer;">
+                <div class="profile-info" onclick="openSettings()">
                     <span id="profileName">Пользователь</span>
                     <span id="profileUsername">@username</span>
                 </div>
-                <button onclick="openSettings()" class="settings-btn"><i class="fas fa-cog"></i></button>
                 <button onclick="logout()" class="logout-btn"><i class="fas fa-sign-out-alt"></i></button>
             </div>
         </div>
 
+        <!-- Правая панель (чат) -->
         <div class="right-panel" id="rightPanel">
+            <!-- Шапка чата -->
             <div class="chat-header">
                 <div class="mobile-back" id="mobileBack"><i class="fas fa-arrow-left"></i></div>
-                <div class="chat-avatar-header" id="chatAvatarHeader" style="cursor:pointer;" onclick="openUserProfile()">
-                    <img id="chatAvatarImg" style="width:40px;height:40px;border-radius:50%;object-fit:cover;display:none;">
-                    <span id="chatAvatarText" style="width:40px;height:40px;border-radius:50%;background:#3a3a3a;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:18px;color:#fff;">Ч</span>
+                <div class="chat-avatar-header" onclick="openUserProfile()">
+                    <img id="chatAvatarImg" style="display:none;">
+                    <span id="chatAvatarText">Ч</span>
                 </div>
-                <div class="info" onclick="openUserProfile()" style="cursor:pointer;">
+                <div class="chat-info-header" onclick="openUserProfile()">
                     <h3 id="chatName">Выберите чат</h3>
                     <span id="chatStatus">онлайн</span>
                 </div>
-                <div class="actions">
-                    <i class="fas fa-phone"></i>
-                    <i class="fas fa-video"></i>
+                <div class="chat-actions">
+                    <button><i class="fas fa-phone"></i></button>
+                    <button><i class="fas fa-video"></i></button>
+                    <button><i class="fas fa-ellipsis-v"></i></button>
                 </div>
             </div>
 
+            <!-- Сообщения -->
             <div class="messages-area" id="messagesArea">
                 <div class="empty-chat">
-                    <i class="fas fa-comment-dots"></i>
-                    <p>Выберите чат или создайте новый</p>
-                    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
-                        <button onclick="showAddContact()" class="empty-btn">➕ Добавить контакт</button>
-                        <button onclick="showCreateChat('group')" class="empty-btn">👥 Создать группу</button>
-                        <button onclick="showCreateChat('channel')" class="empty-btn">📢 Создать канал</button>
-                    </div>
+                    <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                        <circle cx="32" cy="32" r="30" stroke="#2b2b2b" stroke-width="2"/>
+                        <path d="M20 26L32 34L44 26" stroke="#2b2b2b" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M44 26V44H20V26" stroke="#2b2b2b" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <p>Выберите чат</p>
+                    <span>Начните общение</span>
                 </div>
             </div>
 
-            <div class="chat-input">
-                <button class="input-btn" id="emojiBtn" title="Смайлики"><i class="far fa-smile"></i></button>
-                <label class="input-btn" for="fileInput" title="Прикрепить файл"><i class="fas fa-paperclip"></i></label>
-                <input type="file" id="fileInput" multiple style="display:none;">
-                <input type="text" id="messageInput" placeholder="Сообщение..." disabled>
-                <button id="sendBtn" disabled><i class="fas fa-paper-plane"></i></button>
-            </div>
-
-            <div id="emojiPanel" class="emoji-panel" style="display:none;">
-                <div class="emoji-grid" id="emojiGrid"></div>
+            <!-- Инпут -->
+            <div class="chat-input-container">
+                <div class="chat-input-wrapper">
+                    <button class="input-btn" id="emojiBtn"><i class="far fa-smile"></i></button>
+                    <label class="input-btn" for="fileInput"><i class="fas fa-paperclip"></i></label>
+                    <input type="file" id="fileInput" multiple style="display:none;">
+                    <input type="text" id="messageInput" placeholder="Сообщение..." disabled>
+                    <button id="sendBtn" disabled><i class="fas fa-paper-plane"></i></button>
+                </div>
+                <div id="emojiPanel" class="emoji-panel" style="display:none;">
+                    <div class="emoji-grid" id="emojiGrid"></div>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- ===== МОДАЛЬНЫЕ ОКНА ===== -->
     
+    <!-- Настройки -->
     <div id="settingsModal" class="modal">
-        <div class="modal-content" style="max-width:500px;">
+        <div class="modal-content">
             <div class="modal-header">
                 <h2>Настройки</h2>
                 <span class="close" onclick="closeSettings()">&times;</span>
             </div>
             <div class="modal-body">
-                <div style="text-align:center;margin-bottom:20px;">
-                    <div style="position:relative;display:inline-block;">
-                        <div class="settings-avatar" onclick="document.getElementById('avatarInput').click()">
-                            <img id="settingsAvatarImg" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:none;">
-                            <span id="settingsAvatarText">U</span>
-                            <div class="avatar-edit-overlay"><i class="fas fa-camera"></i></div>
-                        </div>
-                        <input type="file" id="avatarInput" accept="image/*" style="display:none;">
-                    </div>
+                <div class="settings-avatar-container" onclick="document.getElementById('avatarInput').click()">
+                    <img id="settingsAvatarImg" style="display:none;">
+                    <span id="settingsAvatarText">U</span>
+                    <div class="settings-avatar-overlay"><i class="fas fa-camera"></i></div>
                 </div>
+                <input type="file" id="avatarInput" accept="image/*" style="display:none;">
                 <div class="input-group">
                     <i class="fas fa-user"></i>
                     <input type="text" id="settingsName" placeholder="Имя">
@@ -197,37 +199,48 @@
                 </div>
                 <div class="input-group" style="align-items:flex-start;">
                     <i class="fas fa-info-circle" style="margin-top:12px;"></i>
-                    <textarea id="settingsBio" placeholder="О себе..." rows="3" style="background:transparent;border:none;outline:none;color:#e0e0e0;font-size:15px;width:100%;resize:vertical;"></textarea>
+                    <textarea id="settingsBio" placeholder="О себе..." rows="3"></textarea>
                 </div>
                 <button onclick="saveSettings()" class="auth-btn">Сохранить</button>
             </div>
         </div>
     </div>
 
-    <!-- ПРОСМОТР ПРОФИЛЯ -->
+    <!-- Профиль пользователя -->
     <div id="userProfileModal" class="modal">
-        <div class="modal-content" style="max-width:400px;">
+        <div class="modal-content profile-modal">
             <div class="modal-header">
                 <h2>Профиль</h2>
                 <span class="close" onclick="closeUserProfile()">&times;</span>
             </div>
-            <div class="modal-body" style="text-align:center;">
-                <div style="width:120px;height:120px;border-radius:50%;margin:0 auto 20px;background:#3a3a3a;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:600;color:#fff;overflow:hidden;">
-                    <img id="profileViewAvatar" style="width:100%;height:100%;object-fit:cover;display:none;">
+            <div class="modal-body profile-body">
+                <div class="profile-avatar-large">
+                    <img id="profileViewAvatar" style="display:none;">
                     <span id="profileViewAvatarText">U</span>
                 </div>
-                <h3 id="profileViewName" style="color:#e0e0e0;font-size:20px;">Имя</h3>
-                <p id="profileViewUsername" style="color:#6a6a6a;font-size:14px;">@username</p>
-                <p id="profileViewBio" style="color:#888;font-size:14px;margin-top:10px;">О себе</p>
-                <p id="profileViewPhone" style="color:#6a6a6a;font-size:13px;margin-top:10px;">📱 +7</p>
-                <p id="profileViewStatus" style="color:#6a6a6a;font-size:13px;margin-top:5px;">Статус: офлайн</p>
-                <button onclick="closeUserProfile()" class="auth-btn" style="margin-top:15px;">Закрыть</button>
+                <h3 id="profileViewName">Имя</h3>
+                <p id="profileViewUsername">@username</p>
+                <p id="profileViewBio">О себе</p>
+                <div class="profile-info-row">
+                    <i class="fas fa-phone"></i>
+                    <span id="profileViewPhone">+7</span>
+                </div>
+                <div class="profile-info-row">
+                    <i class="fas fa-circle" style="color:#4caf50;font-size:12px;"></i>
+                    <span id="profileViewStatus">онлайн</span>
+                </div>
+                <div class="profile-info-row">
+                    <i class="fas fa-calendar-alt"></i>
+                    <span id="profileViewJoined">В сети с 2024</span>
+                </div>
+                <button onclick="closeUserProfile()" class="auth-btn">Закрыть</button>
             </div>
         </div>
     </div>
 
+    <!-- Создание чата -->
     <div id="createChatModal" class="modal">
-        <div class="modal-content" style="max-width:450px;">
+        <div class="modal-content">
             <div class="modal-header">
                 <h2 id="createChatTitle">Создать группу</h2>
                 <span class="close" onclick="closeCreateChat()">&times;</span>
@@ -239,10 +252,10 @@
                 </div>
                 <div class="input-group" style="align-items:flex-start;">
                     <i class="fas fa-info-circle" style="margin-top:12px;"></i>
-                    <textarea id="chatDescriptionInput" placeholder="Описание..." rows="3" style="background:transparent;border:none;outline:none;color:#e0e0e0;font-size:15px;width:100%;resize:vertical;"></textarea>
+                    <textarea id="chatDescriptionInput" placeholder="Описание..." rows="3"></textarea>
                 </div>
                 <div id="addMembersArea">
-                    <p style="color:#6a6a6a;font-size:14px;margin-bottom:10px;">Добавьте участников (по username)</p>
+                    <p style="color:#6a6a6a;font-size:14px;margin-bottom:10px;">Добавьте участников</p>
                     <div style="display:flex;gap:8px;">
                         <input type="text" id="memberSearchInput" placeholder="Введите username..." style="flex:1;background:#2b2b2b;border:none;outline:none;padding:10px 16px;border-radius:12px;color:#e0e0e0;">
                         <button onclick="addMemberByUsername()" class="auth-btn" style="width:auto;padding:10px 20px;margin:0;">Добавить</button>
@@ -254,6 +267,7 @@
         </div>
     </div>
 
+    <!-- Добавление контакта -->
     <div id="addContactModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
