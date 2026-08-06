@@ -5,11 +5,12 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 const db = require('./database');
 
 console.log('🚀 Запуск сервера...');
 
-// ===== ПРОВЕРЯЕМ ПАПКИ =====
+// ===== СОЗДАЁМ ПАПКИ =====
 const publicDir = path.join(__dirname, '..', 'public');
 const uploadDir = path.join(publicDir, 'uploads');
 
@@ -24,19 +25,58 @@ const io = socketIo(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
-    }
+    },
+    maxHttpBufferSize: 50 * 1024 * 1024 // 50MB для файлов
 });
 
 // ===== MIDDLEWARE =====
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use('/uploads', express.static(uploadDir));
 app.use(express.static(publicDir));
 
 console.log('✅ Middleware настроены');
 
+// ===== ЗАГРУЗКА ФАЙЛОВ =====
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        const unique = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, unique + '-' + file.originalname);
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 50 * 1024 * 1024 }
+});
+
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'Файл не загружен' });
+        }
+        
+        const file = {
+            name: req.file.originalname,
+            url: '/uploads/' + req.file.filename,
+            size: req.file.size,
+            type: req.file.mimetype
+        };
+        
+        res.json({ success: true, file });
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Ошибка загрузки файла: ' + error.message });
+    }
+});
+
 // ===== API РОУТЫ =====
 
-// Регистрация
+// РЕГИСТРАЦИЯ
 app.post('/api/register', async (req, res) => {
     try {
         console.log('📝 Регистрация:', req.body);
@@ -52,12 +92,16 @@ app.post('/api/register', async (req, res) => {
         }
         
         const hashedPassword = await bcrypt.hash(password, 10);
+        const username = name.toLowerCase().replace(/\s/g, '') + Date.now().toString().slice(-4);
+        
         const user = {
             id: Date.now().toString(),
             name,
+            username,
             phone,
             password: hashedPassword,
-            avatar: name.charAt(0).toUpperCase()
+            avatar: null,
+            bio: null
         };
         
         await db.createUser(user);
@@ -65,7 +109,7 @@ app.post('/api/register', async (req, res) => {
         
         const code = String(Math.floor(100000 + Math.random() * 900000));
         await db.saveVerification(phone, code, Date.now() + 5 * 60 * 1000);
-        console.log(`📱 Код для ${phone}: ${code}`);
+        console.log(`📱 КОД для ${phone}: ${code}`);
         
         res.json({ 
             success: true, 
@@ -78,7 +122,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Подтверждение
+// ПОДТВЕРЖДЕНИЕ
 app.post('/api/verify', async (req, res) => {
     try {
         console.log('🔑 Подтверждение:', req.body);
@@ -109,8 +153,10 @@ app.post('/api/verify', async (req, res) => {
             user: {
                 id: user.id,
                 name: user.name,
+                username: user.username,
                 phone: user.phone,
                 avatar: user.avatar,
+                bio: user.bio,
                 verified: true
             }
         });
@@ -120,14 +166,19 @@ app.post('/api/verify', async (req, res) => {
     }
 });
 
-// Вход
+// ВХОД
 app.post('/api/login', async (req, res) => {
     try {
         console.log('🔐 Вход:', req.body);
         const { phone, password } = req.body;
         
+        if (!phone || !password) {
+            return res.status(400).json({ error: 'Заполните все поля' });
+        }
+        
         const user = await db.getUser(phone);
         if (!user) {
+            console.log('❌ Пользователь не найден:', phone);
             return res.status(400).json({ error: 'Пользователь не найден' });
         }
         
@@ -139,7 +190,7 @@ app.post('/api/login', async (req, res) => {
         if (!user.verified) {
             const code = String(Math.floor(100000 + Math.random() * 900000));
             await db.saveVerification(phone, code, Date.now() + 5 * 60 * 1000);
-            console.log(`📱 Код для ${phone}: ${code}`);
+            console.log(`📱 КОД для ${phone}: ${code}`);
             return res.json({ 
                 needVerification: true,
                 phone: phone
@@ -154,13 +205,147 @@ app.post('/api/login', async (req, res) => {
             user: {
                 id: user.id,
                 name: user.name,
+                username: user.username,
                 phone: user.phone,
                 avatar: user.avatar,
+                bio: user.bio,
                 verified: true
             }
         });
     } catch (error) {
         console.error('❌ Login error:', error);
+        res.status(500).json({ error: 'Ошибка сервера: ' + error.message });
+    }
+});
+
+// ===== НАСТРОЙКИ =====
+
+// Обновление профиля
+app.post('/api/update-profile', async (req, res) => {
+    try {
+        const { userId, name, username, bio, avatar } = req.body;
+        console.log('📝 Обновление профиля:', { userId, name, username, bio });
+        
+        // Проверяем, свободен ли username
+        if (username) {
+            const existing = await db.getUserByUsername(username);
+            if (existing && existing.id !== userId) {
+                return res.status(400).json({ error: 'Этот username уже занят' });
+            }
+        }
+        
+        const updateData = {};
+        if (name) updateData.name = name;
+        if (username) updateData.username = username;
+        if (bio !== undefined) updateData.bio = bio;
+        if (avatar !== undefined) updateData.avatar = avatar;
+        
+        await db.updateUser(userId, updateData);
+        
+        const user = await db.getUserById(userId);
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                name: user.name,
+                username: user.username,
+                phone: user.phone,
+                avatar: user.avatar,
+                bio: user.bio,
+                verified: user.verified === 1
+            }
+        });
+    } catch (error) {
+        console.error('❌ Update profile error:', error);
+        res.status(500).json({ error: 'Ошибка сервера: ' + error.message });
+    }
+});
+
+// ===== ПОИСК =====
+
+// Поиск пользователей по username или имени
+app.get('/api/search/:query', async (req, res) => {
+    try {
+        const { query } = req.params;
+        const users = await db.searchUsers(query);
+        const filteredUsers = users.filter(u => u.id !== req.query.userId);
+        res.json(filteredUsers.map(u => ({
+            id: u.id,
+            name: u.name,
+            username: u.username,
+            phone: u.phone,
+            avatar: u.avatar,
+            online: u.online === 1
+        })));
+    } catch (error) {
+        console.error('❌ Search error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// ===== КАНАЛЫ И ГРУППЫ =====
+
+// Создать чат (группу или канал)
+app.post('/api/create-chat', async (req, res) => {
+    try {
+        const { name, type, createdBy, participants, description, avatar } = req.body;
+        console.log('📝 Создание чата:', { name, type, createdBy });
+        
+        let allParticipants = [createdBy];
+        if (participants) {
+            allParticipants = [...allParticipants, ...participants];
+        }
+        
+        const chat = await db.createChat(
+            allParticipants,
+            name,
+            type || 'group',
+            createdBy,
+            description || null,
+            avatar || null
+        );
+        
+        // Для канала сразу подписываем создателя
+        if (type === 'channel') {
+            await db.subscribeToChannel(chat.id, createdBy);
+        }
+        
+        // Уведомляем всех участников
+        for (const userId of allParticipants) {
+            const socketId = onlineUsers.get(userId);
+            if (socketId) {
+                const chats = await db.getChats(userId);
+                io.to(socketId).emit('chatsUpdate', chats);
+            }
+        }
+        
+        res.json({ success: true, chat });
+    } catch (error) {
+        console.error('❌ Create chat error:', error);
+        res.status(500).json({ error: 'Ошибка сервера: ' + error.message });
+    }
+});
+
+// Подписаться на канал
+app.post('/api/subscribe', async (req, res) => {
+    try {
+        const { channelId, userId } = req.body;
+        await db.subscribeToChannel(channelId, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('❌ Subscribe error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Отписаться от канала
+app.post('/api/unsubscribe', async (req, res) => {
+    try {
+        const { channelId, userId } = req.body;
+        await db.unsubscribeFromChannel(channelId, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('❌ Unsubscribe error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
@@ -183,17 +368,6 @@ app.get('/api/messages/:chatId', async (req, res) => {
         res.json(messages);
     } catch (error) {
         console.error('Get messages error:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
-    }
-});
-
-app.post('/api/chats', async (req, res) => {
-    try {
-        const { participants, name } = req.body;
-        const chat = await db.createChat(participants, name);
-        res.json(chat);
-    } catch (error) {
-        console.error('Create chat error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
@@ -224,6 +398,7 @@ app.get('/api/users/phone/:phone', async (req, res) => {
         res.json({
             id: user.id,
             name: user.name,
+            username: user.username,
             phone: user.phone,
             avatar: user.avatar,
             online: user.online === 1,
@@ -277,8 +452,8 @@ io.on('connection', (socket) => {
             
             const participants = await db.getChatParticipants(chatId);
             
-            for (const userId of participants) {
-                const socketId = onlineUsers.get(userId);
+            for (const p of participants) {
+                const socketId = onlineUsers.get(p.user_id);
                 if (socketId) {
                     io.to(socketId).emit('newMessage', {
                         message,
@@ -288,10 +463,10 @@ io.on('connection', (socket) => {
                 }
             }
             
-            for (const userId of participants) {
-                const socketId = onlineUsers.get(userId);
+            for (const p of participants) {
+                const socketId = onlineUsers.get(p.user_id);
                 if (socketId) {
-                    const chats = await db.getChats(userId);
+                    const chats = await db.getChats(p.user_id);
                     io.to(socketId).emit('chatsUpdate', chats);
                 }
             }
@@ -322,11 +497,10 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Сервер запущен на порту ${PORT}`);
+    console.log(`✅ Сервер успешно запущен на порту ${PORT}`);
     console.log(`📍 http://localhost:${PORT}`);
 });
 
-// ===== ОБРАБОТКА ОШИБОК =====
 process.on('uncaughtException', (error) => {
     console.error('💥 Uncaught Exception:', error);
 });

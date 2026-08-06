@@ -1,5 +1,5 @@
 /* ============================================================
-   Telegram Social Network - Клиент (ИСПРАВЛЕННЫЙ)
+   Telegram Social Network - Клиент (полная версия)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -7,6 +7,9 @@ let socket = null;
 let currentUser = null;
 let currentChatId = null;
 let allChats = [];
+let selectedMembers = [];
+let createChatType = 'group';
+let searchTimeout = null;
 
 // ===== ЭМОДЗИ =====
 const EMOJIS = [
@@ -52,6 +55,29 @@ const api = {
         return res.json();
     },
 
+    async updateProfile(data) {
+        const res = await fetch(`${API_URL}/api/update-profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return res.json();
+    },
+
+    async searchUsers(query, userId) {
+        const res = await fetch(`${API_URL}/api/search/${encodeURIComponent(query)}?userId=${userId}`);
+        return res.json();
+    },
+
+    async createChat(data) {
+        const res = await fetch(`${API_URL}/api/create-chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return res.json();
+    },
+
     async getChats(userId) {
         const res = await fetch(`${API_URL}/api/chats/${userId}`);
         return res.json();
@@ -59,15 +85,6 @@ const api = {
 
     async getMessages(chatId) {
         const res = await fetch(`${API_URL}/api/messages/${chatId}`);
-        return res.json();
-    },
-
-    async createChat(participants, name = null) {
-        const res = await fetch(`${API_URL}/api/chats`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ participants, name })
-        });
         return res.json();
     },
 
@@ -100,6 +117,24 @@ const api = {
         const res = await fetch(`${API_URL}/api/upload`, {
             method: 'POST',
             body: formData
+        });
+        return res.json();
+    },
+
+    async subscribe(channelId, userId) {
+        const res = await fetch(`${API_URL}/api/subscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channelId, userId })
+        });
+        return res.json();
+    },
+
+    async unsubscribe(channelId, userId) {
+        const res = await fetch(`${API_URL}/api/unsubscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channelId, userId })
         });
         return res.json();
     }
@@ -165,7 +200,7 @@ async function register() {
     if (!phone || phone.length < 10) { showToast('Введите корректный номер', 'error'); return; }
     if (!password || password.length < 6) { showToast('Пароль минимум 6 символов', 'error'); return; }
 
-    showToast('⏳ Отправка запроса...', 'info');
+    showToast('⏳ Отправка...', 'info');
     
     const result = await api.register(name, phone, password);
     console.log('📝 Результат регистрации:', result);
@@ -176,10 +211,8 @@ async function register() {
     }
 
     if (result.success) {
-        showToast('📱 Код отправлен! Проверьте консоль', 'success');
+        showToast('📱 Код отправлен!', 'success');
         showVerification(phone);
-    } else {
-        showToast('Ошибка при регистрации', 'error');
     }
 }
 
@@ -187,18 +220,12 @@ async function verifyCode() {
     let code = '';
     for (let i = 1; i <= 6; i++) {
         const input = document.getElementById(`code${i}`);
-        if (!input.value) { 
-            showToast('Введите полный код из 6 цифр', 'error'); 
-            return; 
-        }
+        if (!input.value) { showToast('Введите полный код', 'error'); return; }
         code += input.value;
     }
 
     const phone = document.getElementById('verifyPhone').textContent;
-    console.log('🔑 Отправка кода:', { phone, code });
-    
     const result = await api.verify(phone, code);
-    console.log('🔑 Результат верификации:', result);
     
     if (result.error) {
         showToast(result.error, 'error');
@@ -208,8 +235,6 @@ async function verifyCode() {
     if (result.success && result.user) {
         showToast('✅ Номер подтвержден!', 'success');
         loginUser(result.user);
-    } else {
-        showToast('Ошибка подтверждения', 'error');
     }
 }
 
@@ -218,10 +243,7 @@ async function resendCode() {
     const name = document.getElementById('regName').value.trim() || 'User';
     const password = document.getElementById('regPassword').value || '123456';
     
-    showToast('⏳ Отправка нового кода...', 'info');
     const result = await api.register(name, phone, password);
-    console.log('📝 Повторная отправка:', result);
-    
     if (result.error) {
         showToast(result.error, 'error');
     } else {
@@ -249,31 +271,45 @@ async function login() {
     }
 
     if (result.needVerification) {
-        showToast('📱 Требуется подтверждение. Код отправлен!', 'success');
+        showToast('📱 Требуется подтверждение', 'success');
         showVerification(phone);
         return;
     }
 
     if (result.success && result.user) {
         loginUser(result.user);
-    } else {
-        showToast('Ошибка входа', 'error');
     }
 }
 
 function loginUser(user) {
-    console.log('✅ Вход выполнен:', user);
     currentUser = user;
     document.getElementById('authScreen').style.display = 'none';
     document.getElementById('mainApp').style.display = 'flex';
     
-    document.getElementById('profileName').textContent = user.name;
-    document.getElementById('profilePhone').textContent = user.phone;
-    document.getElementById('profileAvatar').textContent = user.avatar;
+    updateProfileUI(user);
     
     connectSocket(user.id);
     loadChats();
     showToast(`Добро пожаловать, ${user.name}!`, 'success');
+}
+
+function updateProfileUI(user) {
+    document.getElementById('profileName').textContent = user.name;
+    document.getElementById('profilePhone').textContent = user.phone;
+    document.getElementById('profileUsername').textContent = user.username ? '@' + user.username : '@username';
+    
+    const avatarText = document.getElementById('profileAvatarText');
+    const avatarImg = document.getElementById('profileAvatarImg');
+    
+    if (user.avatar) {
+        avatarImg.src = user.avatar;
+        avatarImg.style.display = 'block';
+        avatarText.style.display = 'none';
+    } else {
+        avatarText.textContent = user.name.charAt(0).toUpperCase();
+        avatarText.style.display = 'block';
+        avatarImg.style.display = 'none';
+    }
 }
 
 function logout() {
@@ -283,6 +319,138 @@ function logout() {
     document.getElementById('mainApp').style.display = 'none';
     document.getElementById('authScreen').style.display = 'flex';
     document.getElementById('loginPassword').value = '';
+}
+
+// ===== НАСТРОЙКИ =====
+
+function openSettings() {
+    const modal = document.getElementById('settingsModal');
+    document.getElementById('settingsName').value = currentUser.name || '';
+    document.getElementById('settingsUsername').value = currentUser.username || '';
+    document.getElementById('settingsBio').value = currentUser.bio || '';
+    
+    const avatarText = document.getElementById('settingsAvatarText');
+    const avatarImg = document.getElementById('settingsAvatarImg');
+    
+    if (currentUser.avatar) {
+        avatarImg.src = currentUser.avatar;
+        avatarImg.style.display = 'block';
+        avatarText.style.display = 'none';
+    } else {
+        avatarText.textContent = currentUser.name.charAt(0).toUpperCase();
+        avatarText.style.display = 'block';
+        avatarImg.style.display = 'none';
+    }
+    
+    modal.classList.add('show');
+}
+
+function closeSettings() {
+    document.getElementById('settingsModal').classList.remove('show');
+}
+
+document.getElementById('avatarInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const img = document.getElementById('settingsAvatarImg');
+            img.src = event.target.result;
+            img.style.display = 'block';
+            document.getElementById('settingsAvatarText').style.display = 'none';
+            // Сохраняем аватар
+            currentUser.avatar = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+async function saveSettings() {
+    const name = document.getElementById('settingsName').value.trim();
+    const username = document.getElementById('settingsUsername').value.trim();
+    const bio = document.getElementById('settingsBio').value.trim();
+    const avatar = currentUser.avatar || null;
+    
+    if (!name) { showToast('Введите имя', 'error'); return; }
+    if (!username) { showToast('Введите username', 'error'); return; }
+    if (username.includes(' ')) { showToast('Username не может содержать пробелы', 'error'); return; }
+    
+    const result = await api.updateProfile({
+        userId: currentUser.id,
+        name,
+        username,
+        bio,
+        avatar
+    });
+    
+    if (result.error) {
+        showToast(result.error, 'error');
+        return;
+    }
+    
+    if (result.success) {
+        currentUser = result.user;
+        updateProfileUI(currentUser);
+        closeSettings();
+        showToast('✅ Профиль обновлен!', 'success');
+        renderChats();
+    }
+}
+
+// ===== ПОИСК =====
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+    const query = e.target.value.trim();
+    if (query.length > 1) {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            searchUsers(query);
+        }, 300);
+    } else if (query.length === 0) {
+        renderChats();
+    }
+});
+
+async function searchUsers(query) {
+    if (!currentUser) return;
+    const results = await api.searchUsers(query, currentUser.id);
+    const list = document.getElementById('chatList');
+    list.innerHTML = '';
+    
+    if (results.length === 0) {
+        list.innerHTML = `<div style="padding: 20px; text-align: center; color: #6a6a6a;">Пользователи не найдены</div>`;
+        return;
+    }
+    
+    results.forEach(user => {
+        const item = document.createElement('div');
+        item.className = 'chat-item';
+        item.innerHTML = `
+            <div class="chat-avatar c${Math.floor(Math.random() * 7) + 1}">
+                ${user.avatar ? `<img src="${user.avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : user.name.charAt(0).toUpperCase()}
+                ${user.online ? '<div class="online-dot"></div>' : ''}
+            </div>
+            <div class="chat-info">
+                <div class="name">${user.name}</div>
+                <div class="last-msg">@${user.username || 'username'}</div>
+            </div>
+        `;
+        item.addEventListener('click', () => {
+            // Открываем чат с этим пользователем
+            document.getElementById('searchInput').value = '';
+            renderChats();
+            openChatWithUser(user.id);
+        });
+        list.appendChild(item);
+    });
+}
+
+async function openChatWithUser(userId) {
+    const result = await api.addContact(currentUser.id, userId);
+    if (result.chat) {
+        loadChats();
+        openChat(result.chat.id);
+    }
 }
 
 // ===== ЧАТЫ =====
@@ -309,7 +477,7 @@ function renderChats(filter = '') {
         list.innerHTML = `
             <div style="padding: 40px 20px; text-align: center; color: #6a6a6a;">
                 <p>У вас пока нет чатов</p>
-                <p style="font-size: 13px; margin-top: 8px;">Добавьте контакты</p>
+                <p style="font-size: 13px; margin-top: 8px;">Создайте группу, канал или добавьте контакт</p>
             </div>
         `;
         return;
@@ -321,6 +489,12 @@ function renderChats(filter = '') {
         const lastMsg = chat.last_message || 'Нет сообщений';
         const time = formatTime(chat.last_message_time);
         const unread = chat.unread || 0;
+        
+        // Иконка типа чата
+        let typeIcon = '';
+        if (chat.type === 'channel') typeIcon = '📢 ';
+        else if (chat.type === 'group') typeIcon = '👥 ';
+        else typeIcon = '💬 ';
 
         const item = document.createElement('div');
         item.className = `chat-item ${chat.id === currentChatId ? 'active' : ''}`;
@@ -330,7 +504,7 @@ function renderChats(filter = '') {
             </div>
             <div class="chat-info">
                 <div class="name">
-                    ${name}
+                    ${typeIcon}${name}
                     ${unread > 0 ? `<span class="badge">${unread}</span>` : ''}
                 </div>
                 <div class="last-msg">${lastMsg}</div>
@@ -349,12 +523,19 @@ function getChatName(chat) {
     if (!currentUser) return 'Чат';
     if (chat.name) return chat.name;
     const participants = chat.participants || [];
-    const others = participants.filter(id => id !== currentUser.id);
+    const others = participants.filter(p => p.user_id !== currentUser.id);
     if (others.length === 0) return 'Чат';
-    return 'Собеседник';
+    const user = others[0];
+    if (user && user.user_id) {
+        const contact = allChats.find(c => c.id === chat.id);
+        return 'Собеседник';
+    }
+    return 'Чат';
 }
 
 function getChatAvatar(chat) {
+    if (chat.avatar) return `<img src="${chat.avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
+    if (chat.name) return chat.name.charAt(0).toUpperCase();
     return 'Ч';
 }
 
@@ -381,7 +562,7 @@ async function openChat(chatId) {
     if (!chat) return;
 
     document.getElementById('chatName').textContent = getChatName(chat);
-    document.getElementById('chatAvatar').textContent = getChatAvatar(chat);
+    document.getElementById('chatAvatar').textContent = chat.name ? chat.name.charAt(0).toUpperCase() : 'Ч';
     
     await renderMessages(chatId);
     document.getElementById('messageInput').disabled = false;
@@ -421,7 +602,8 @@ async function renderMessages(chatId) {
         let content = msg.text || '';
         
         if (msg.file) {
-            content += renderFileAttachment(msg.file, isSent);
+            const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
+            content += renderFileAttachment(file, isSent);
         }
         
         div.innerHTML = `
@@ -626,6 +808,95 @@ function sendMessage() {
     input.value = '';
 }
 
+// ===== СОЗДАНИЕ ЧАТА =====
+
+function showCreateChat(type) {
+    createChatType = type;
+    selectedMembers = [];
+    document.getElementById('createChatTitle').textContent = type === 'channel' ? '📢 Создать канал' : '👥 Создать группу';
+    document.getElementById('chatNameInput').value = '';
+    document.getElementById('chatDescriptionInput').value = '';
+    document.getElementById('memberSearchInput').value = '';
+    document.getElementById('membersList').innerHTML = '';
+    
+    if (type === 'channel') {
+        document.getElementById('addMembersArea').style.display = 'none';
+    } else {
+        document.getElementById('addMembersArea').style.display = 'block';
+    }
+    
+    document.getElementById('createChatModal').classList.add('show');
+}
+
+function closeCreateChat() {
+    document.getElementById('createChatModal').classList.remove('show');
+}
+
+async function addMemberByUsername() {
+    const username = document.getElementById('memberSearchInput').value.trim();
+    if (!username) { showToast('Введите username', 'error'); return; }
+    
+    // Ищем пользователя
+    const results = await api.searchUsers(username, currentUser.id);
+    const user = results.find(u => u.username === username);
+    
+    if (!user) {
+        showToast('Пользователь не найден', 'error');
+        return;
+    }
+    
+    if (selectedMembers.includes(user.id)) {
+        showToast('Уже добавлен', 'info');
+        return;
+    }
+    
+    selectedMembers.push(user.id);
+    document.getElementById('memberSearchInput').value = '';
+    renderMembersList();
+}
+
+function renderMembersList() {
+    const container = document.getElementById('membersList');
+    container.innerHTML = selectedMembers.map(id => `
+        <span class="member-tag">
+            ${id}
+            <span class="remove-member" onclick="removeMember('${id}')">&times;</span>
+        </span>
+    `).join('');
+}
+
+function removeMember(userId) {
+    selectedMembers = selectedMembers.filter(id => id !== userId);
+    renderMembersList();
+}
+
+async function createChat() {
+    const name = document.getElementById('chatNameInput').value.trim();
+    const description = document.getElementById('chatDescriptionInput').value.trim();
+    
+    if (!name) { showToast('Введите название', 'error'); return; }
+    
+    const data = {
+        name: name,
+        type: createChatType,
+        createdBy: currentUser.id,
+        description: description || null,
+        participants: createChatType === 'channel' ? [] : selectedMembers
+    };
+    
+    const result = await api.createChat(data);
+    
+    if (result.error) {
+        showToast(result.error, 'error');
+        return;
+    }
+    
+    showToast(`✅ ${createChatType === 'channel' ? 'Канал' : 'Группа'} создана!`, 'success');
+    closeCreateChat();
+    loadChats();
+    openChat(result.chat.id);
+}
+
 // ===== КОНТАКТЫ =====
 
 function showAddContact() {
@@ -665,12 +936,7 @@ async function addContact() {
 
 // ===== ОБРАБОТЧИКИ =====
 
-document.getElementById('searchInput').addEventListener('input', (e) => {
-    renderChats(e.target.value);
-});
-
 document.getElementById('sendBtn').addEventListener('click', sendMessage);
-
 document.getElementById('messageInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendMessage();
 });
@@ -681,6 +947,14 @@ document.getElementById('mobileBack').addEventListener('click', () => {
 
 document.getElementById('addContactModal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
+});
+
+document.getElementById('settingsModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeSettings();
+});
+
+document.getElementById('createChatModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeCreateChat();
 });
 
 document.getElementById('emojiBtn').addEventListener('click', toggleEmojiPanel);
@@ -736,4 +1010,4 @@ function showToast(text, type = 'info', duration = 3000) {
 initEmojiPanel();
 
 console.log('✅ Telegram Social Network готова к работе!');
-console.log('📎 Добавлены файлы и смайлики!');
+console.log('📢 Добавлены: настройки, аватарки, username, поиск, каналы, группы!');

@@ -4,7 +4,6 @@ const fs = require('fs');
 
 console.log('📦 Инициализация базы данных...');
 
-// ===== СОЗДАЁМ ПАПКУ ДЛЯ ДАННЫХ =====
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -24,63 +23,55 @@ const db = new sqlite3.Database(dbPath, (err) => {
 
 // ===== СОЗДАЁМ ТАБЛИЦЫ =====
 db.serialize(() => {
-    // Пользователи
+    // Пользователи (добавлены username, bio, avatar)
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            username TEXT UNIQUE,
             phone TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             avatar TEXT,
+            bio TEXT,
             verified INTEGER DEFAULT 0,
             online INTEGER DEFAULT 0,
             created_at TEXT
         )
-    `, (err) => {
-        if (err) console.error('❌ Ошибка users:', err.message);
-        else console.log('✅ Таблица users');
-    });
+    `);
 
-    // Верификация
     db.run(`
         CREATE TABLE IF NOT EXISTS verifications (
             phone TEXT PRIMARY KEY,
             code TEXT NOT NULL,
             expires INTEGER NOT NULL
         )
-    `, (err) => {
-        if (err) console.error('❌ Ошибка verifications:', err.message);
-        else console.log('✅ Таблица verifications');
-    });
+    `);
 
-    // Чаты
+    // Чаты (добавлен тип: private, group, channel)
     db.run(`
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
             name TEXT,
             type TEXT DEFAULT 'private',
+            avatar TEXT,
+            description TEXT,
+            created_by TEXT,
             created_at TEXT,
             last_message TEXT,
             last_message_time TEXT
         )
-    `, (err) => {
-        if (err) console.error('❌ Ошибка chats:', err.message);
-        else console.log('✅ Таблица chats');
-    });
+    `);
 
-    // Участники чатов
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
             user_id TEXT,
+            role TEXT DEFAULT 'member',
+            joined_at TEXT,
             PRIMARY KEY (chat_id, user_id)
         )
-    `, (err) => {
-        if (err) console.error('❌ Ошибка chat_participants:', err.message);
-        else console.log('✅ Таблица chat_participants');
-    });
+    `);
 
-    // Сообщения
     db.run(`
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -91,37 +82,36 @@ db.serialize(() => {
             read INTEGER DEFAULT 0,
             created_at TEXT
         )
-    `, (err) => {
-        if (err) console.error('❌ Ошибка messages:', err.message);
-        else console.log('✅ Таблица messages');
-    });
+    `);
 
-    // Непрочитанные сообщения
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
             user_id TEXT,
             PRIMARY KEY (message_id, user_id)
         )
-    `, (err) => {
-        if (err) console.error('❌ Ошибка unread_messages:', err.message);
-        else console.log('✅ Таблица unread_messages');
-    });
+    `);
+
+    // Подписки на каналы
+    db.run(`
+        CREATE TABLE IF NOT EXISTS channel_subscribers (
+            channel_id TEXT,
+            user_id TEXT,
+            subscribed_at TEXT,
+            PRIMARY KEY (channel_id, user_id)
+        )
+    `);
 
     console.log('✅ Все таблицы созданы');
 });
 
-// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+// ===== ФУНКЦИИ =====
 
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.run(sql, params, function(err) {
-            if (err) {
-                console.error('❌ runQuery ошибка:', err.message);
-                reject(err);
-            } else {
-                resolve(this);
-            }
+            if (err) reject(err);
+            else resolve(this);
         });
     });
 }
@@ -129,12 +119,8 @@ function runQuery(sql, params = []) {
 function getQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.get(sql, params, (err, row) => {
-            if (err) {
-                console.error('❌ getQuery ошибка:', err.message);
-                reject(err);
-            } else {
-                resolve(row);
-            }
+            if (err) reject(err);
+            else resolve(row);
         });
     });
 }
@@ -142,45 +128,59 @@ function getQuery(sql, params = []) {
 function allQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.all(sql, params, (err, rows) => {
-            if (err) {
-                console.error('❌ allQuery ошибка:', err.message);
-                reject(err);
-            } else {
-                resolve(rows);
-            }
+            if (err) reject(err);
+            else resolve(rows);
         });
     });
 }
 
-// ===== КЛАСС ДЛЯ РАБОТЫ С БД =====
-
 class Database {
-    // ---------- ПОЛЬЗОВАТЕЛИ ----------
+    // ===== ПОЛЬЗОВАТЕЛИ =====
     async getUser(phone) {
-        try {
-            return await getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
-        } catch (error) {
-            console.error('getUser error:', error);
-            return null;
-        }
+        return getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
     }
 
     async getUserById(id) {
-        try {
-            return await getQuery('SELECT * FROM users WHERE id = ?', [id]);
-        } catch (error) {
-            console.error('getUserById error:', error);
-            return null;
-        }
+        return getQuery('SELECT * FROM users WHERE id = ?', [id]);
+    }
+
+    async getUserByUsername(username) {
+        return getQuery('SELECT * FROM users WHERE username = ?', [username]);
+    }
+
+    async searchUsers(query) {
+        return allQuery(
+            `SELECT * FROM users WHERE 
+             name LIKE ? OR phone LIKE ? OR username LIKE ? 
+             ORDER BY name ASC LIMIT 20`,
+            [`%${query}%`, `%${query}%`, `%${query}%`]
+        );
     }
 
     async createUser(user) {
         await runQuery(
-            `INSERT INTO users (id, name, phone, password, avatar, verified, online, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [user.id, user.name, user.phone, user.password, user.avatar, 0, 0, new Date().toISOString()]
+            `INSERT INTO users (id, name, username, phone, password, avatar, bio, verified, online, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [user.id, user.name, user.username || null, user.phone, user.password, 
+             user.avatar || null, user.bio || null, 0, 0, new Date().toISOString()]
         );
         return user;
+    }
+
+    async updateUser(id, data) {
+        const fields = [];
+        const values = [];
+        for (const [key, value] of Object.entries(data)) {
+            if (value !== undefined && value !== null) {
+                fields.push(`${key} = ?`);
+                values.push(value);
+            }
+        }
+        values.push(id);
+        await runQuery(
+            `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
+            values
+        );
     }
 
     async verifyUser(phone) {
@@ -191,7 +191,7 @@ class Database {
         await runQuery('UPDATE users SET online = ? WHERE id = ?', [online ? 1 : 0, userId]);
     }
 
-    // ---------- ВЕРИФИКАЦИЯ (ЭТИ МЕТОДЫ БЫЛИ ПРОПУЩЕНЫ!) ----------
+    // ===== ВЕРИФИКАЦИЯ =====
     async saveVerification(phone, code, expires) {
         await runQuery(
             `INSERT OR REPLACE INTO verifications (phone, code, expires) VALUES (?, ?, ?)`,
@@ -207,7 +207,7 @@ class Database {
         await runQuery('DELETE FROM verifications WHERE phone = ?', [phone]);
     }
 
-    // ---------- ЧАТЫ ----------
+    // ===== ЧАТЫ =====
     async getChats(userId) {
         const chats = await allQuery(
             `SELECT c.* FROM chats c 
@@ -220,6 +220,9 @@ class Database {
         for (const chat of chats) {
             chat.participants = await this.getChatParticipants(chat.id);
             chat.unread = await this.getUnreadCount(chat.id, userId);
+            if (chat.type === 'channel') {
+                chat.subscribers = await this.getChannelSubscribers(chat.id);
+            }
         }
         return chats;
     }
@@ -228,6 +231,9 @@ class Database {
         const chat = await getQuery('SELECT * FROM chats WHERE id = ?', [chatId]);
         if (chat) {
             chat.participants = await this.getChatParticipants(chatId);
+            if (chat.type === 'channel') {
+                chat.subscribers = await this.getChannelSubscribers(chatId);
+            }
         }
         return chat;
     }
@@ -246,18 +252,19 @@ class Database {
         return null;
     }
 
-    async createChat(participants, name = null, type = 'private') {
+    async createChat(participants, name = null, type = 'private', createdBy = null, description = null, avatar = null) {
         const chatId = Date.now().toString();
         await runQuery(
-            `INSERT INTO chats (id, name, type, created_at, last_message, last_message_time) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [chatId, name, type, new Date().toISOString(), null, null]
+            `INSERT INTO chats (id, name, type, avatar, description, created_by, created_at, last_message, last_message_time) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [chatId, name, type, avatar || null, description || null, createdBy, new Date().toISOString(), null, null]
         );
         
         for (const userId of participants) {
+            const role = userId === createdBy ? 'admin' : (type === 'channel' ? 'subscriber' : 'member');
             await runQuery(
-                `INSERT INTO chat_participants (chat_id, user_id) VALUES (?, ?)`,
-                [chatId, userId]
+                `INSERT INTO chat_participants (chat_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)`,
+                [chatId, userId, role, new Date().toISOString()]
             );
         }
         
@@ -266,20 +273,52 @@ class Database {
 
     async getChatParticipants(chatId) {
         const rows = await allQuery(
-            `SELECT user_id FROM chat_participants WHERE chat_id = ?`,
+            `SELECT user_id, role FROM chat_participants WHERE chat_id = ?`,
             [chatId]
+        );
+        return rows;
+    }
+
+    async addParticipant(chatId, userId, role = 'member') {
+        await runQuery(
+            `INSERT OR REPLACE INTO chat_participants (chat_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)`,
+            [chatId, userId, role, new Date().toISOString()]
+        );
+    }
+
+    async removeParticipant(chatId, userId) {
+        await runQuery(
+            `DELETE FROM chat_participants WHERE chat_id = ? AND user_id = ?`,
+            [chatId, userId]
+        );
+    }
+
+    // ===== КАНАЛЫ =====
+    async getChannelSubscribers(channelId) {
+        const rows = await allQuery(
+            `SELECT user_id FROM channel_subscribers WHERE channel_id = ?`,
+            [channelId]
         );
         return rows.map(row => row.user_id);
     }
 
-    async updateChatLastMessage(chatId, message) {
+    async subscribeToChannel(channelId, userId) {
         await runQuery(
-            `UPDATE chats SET last_message = ?, last_message_time = ? WHERE id = ?`,
-            [message.text || '[Файл]', message.created_at, chatId]
+            `INSERT OR REPLACE INTO channel_subscribers (channel_id, user_id, subscribed_at) VALUES (?, ?, ?)`,
+            [channelId, userId, new Date().toISOString()]
         );
+        await this.addParticipant(channelId, userId, 'subscriber');
     }
 
-    // ---------- СООБЩЕНИЯ ----------
+    async unsubscribeFromChannel(channelId, userId) {
+        await runQuery(
+            `DELETE FROM channel_subscribers WHERE channel_id = ? AND user_id = ?`,
+            [channelId, userId]
+        );
+        await this.removeParticipant(channelId, userId);
+    }
+
+    // ===== СООБЩЕНИЯ =====
     async getMessages(chatId, limit = 100) {
         return allQuery(
             `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC LIMIT ?`,
@@ -296,11 +335,11 @@ class Database {
         );
         
         const participants = await this.getChatParticipants(message.chat_id);
-        for (const userId of participants) {
-            if (userId !== message.sender_id) {
+        for (const p of participants) {
+            if (p.user_id !== message.sender_id) {
                 await runQuery(
                     `INSERT INTO unread_messages (message_id, user_id) VALUES (?, ?)`,
-                    [message.id, userId]
+                    [message.id, p.user_id]
                 );
             }
         }
@@ -309,10 +348,18 @@ class Database {
         return message;
     }
 
-    async markAsRead(messageId, userId) {
+    async updateChatLastMessage(chatId, message) {
         await runQuery(
-            `DELETE FROM unread_messages WHERE message_id = ? AND user_id = ?`,
-            [messageId, userId]
+            `UPDATE chats SET last_message = ?, last_message_time = ? WHERE id = ?`,
+            [message.text || '[Файл]', message.created_at, chatId]
+        );
+    }
+
+    async markAllChatMessagesAsRead(chatId, userId) {
+        await runQuery(
+            `DELETE FROM unread_messages WHERE message_id IN 
+             (SELECT id FROM messages WHERE chat_id = ?) AND user_id = ?`,
+            [chatId, userId]
         );
     }
 
@@ -324,14 +371,6 @@ class Database {
             [chatId, userId]
         );
         return result ? result.count : 0;
-    }
-
-    async markAllChatMessagesAsRead(chatId, userId) {
-        await runQuery(
-            `DELETE FROM unread_messages WHERE message_id IN 
-             (SELECT id FROM messages WHERE chat_id = ?) AND user_id = ?`,
-            [chatId, userId]
-        );
     }
 }
 
