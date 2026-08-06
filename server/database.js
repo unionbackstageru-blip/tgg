@@ -21,18 +21,8 @@ db.serialize(() => {
             phone TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             avatar TEXT,
-            verified INTEGER DEFAULT 0,
             online INTEGER DEFAULT 0,
             created_at TEXT
-        )
-    `);
-
-    // Коды подтверждения
-    db.run(`
-        CREATE TABLE IF NOT EXISTS verifications (
-            phone TEXT PRIMARY KEY,
-            code TEXT NOT NULL,
-            expires INTEGER NOT NULL
         )
     `);
 
@@ -53,9 +43,7 @@ db.serialize(() => {
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
             user_id TEXT,
-            PRIMARY KEY (chat_id, user_id),
-            FOREIGN KEY (chat_id) REFERENCES chats(id),
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            PRIMARY KEY (chat_id, user_id)
         )
     `);
 
@@ -67,9 +55,7 @@ db.serialize(() => {
             sender_id TEXT NOT NULL,
             text TEXT NOT NULL,
             read INTEGER DEFAULT 0,
-            created_at TEXT,
-            FOREIGN KEY (chat_id) REFERENCES chats(id),
-            FOREIGN KEY (sender_id) REFERENCES users(id)
+            created_at TEXT
         )
     `);
 
@@ -78,16 +64,14 @@ db.serialize(() => {
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
             user_id TEXT,
-            PRIMARY KEY (message_id, user_id),
-            FOREIGN KEY (message_id) REFERENCES messages(id),
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            PRIMARY KEY (message_id, user_id)
         )
     `);
 
     console.log('✅ База данных инициализирована');
 });
 
-// ===== ФУНКЦИИ ДЛЯ РАБОТЫ С БД (ПРОМИСЫ) =====
+// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -116,7 +100,7 @@ function allQuery(sql, params = []) {
     });
 }
 
-// ===== КЛАСС ДЛЯ РАБОТЫ С БД =====
+// ===== КЛАСС БД =====
 
 class Database {
     // ---------- ПОЛЬЗОВАТЕЛИ ----------
@@ -128,41 +112,17 @@ class Database {
         return getQuery('SELECT * FROM users WHERE id = ?', [id]);
     }
 
-    async getUsers() {
-        return allQuery('SELECT * FROM users');
-    }
-
     async createUser(user) {
         await runQuery(
-            `INSERT INTO users (id, name, phone, password, avatar, verified, online, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [user.id, user.name, user.phone, user.password, user.avatar, 0, 0, new Date().toISOString()]
+            `INSERT INTO users (id, name, phone, password, avatar, online, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [user.id, user.name, user.phone, user.password, user.avatar, 0, new Date().toISOString()]
         );
         return user;
     }
 
-    async verifyUser(phone) {
-        await runQuery('UPDATE users SET verified = 1 WHERE phone = ?', [phone]);
-    }
-
     async setUserOnline(userId, online) {
         await runQuery('UPDATE users SET online = ? WHERE id = ?', [online ? 1 : 0, userId]);
-    }
-
-    // ---------- ВЕРИФИКАЦИЯ ----------
-    async saveVerification(phone, code, expires) {
-        await runQuery(
-            `INSERT OR REPLACE INTO verifications (phone, code, expires) VALUES (?, ?, ?)`,
-            [phone, code, expires]
-        );
-    }
-
-    async getVerification(phone) {
-        return getQuery('SELECT * FROM verifications WHERE phone = ?', [phone]);
-    }
-
-    async deleteVerification(phone) {
-        await runQuery('DELETE FROM verifications WHERE phone = ?', [phone]);
     }
 
     // ---------- ЧАТЫ ----------
@@ -175,7 +135,6 @@ class Database {
             [userId]
         );
         
-        // Добавляем информацию об участниках
         for (const chat of chats) {
             chat.participants = await this.getChatParticipants(chat.id);
             chat.unread = await this.getUnreadCount(chat.id, userId);
@@ -253,7 +212,6 @@ class Database {
             [message.id, message.chat_id, message.sender_id, message.text, 0, message.created_at]
         );
         
-        // Добавляем непрочитанные для всех участников кроме отправителя
         const participants = await this.getChatParticipants(message.chat_id);
         for (const userId of participants) {
             if (userId !== message.sender_id) {
@@ -273,7 +231,6 @@ class Database {
             `DELETE FROM unread_messages WHERE message_id = ? AND user_id = ?`,
             [messageId, userId]
         );
-        // Проверяем, все ли прочитали
         const unreadCount = await getQuery(
             `SELECT COUNT(*) as count FROM unread_messages WHERE message_id = ?`,
             [messageId]
@@ -294,14 +251,12 @@ class Database {
     }
 
     async markAllChatMessagesAsRead(chatId, userId) {
-        // Получаем все непрочитанные сообщения в чате для пользователя
         const unread = await allQuery(
             `SELECT um.message_id FROM unread_messages um 
              JOIN messages m ON um.message_id = m.id 
              WHERE m.chat_id = ? AND um.user_id = ?`,
             [chatId, userId]
         );
-        
         for (const item of unread) {
             await this.markAsRead(item.message_id, userId);
         }

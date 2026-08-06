@@ -4,7 +4,9 @@ const socketIo = require('socket.io');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const fs = require('fs');
 const db = require('./database');
+const multer = require('multer');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +21,49 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// ===== ЗАГРУЗКА ФАЙЛОВ =====
+const uploadDir = path.join(__dirname, '..', 'public', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        const unique = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, unique + '-' + file.originalname);
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    limits: {
+        fileSize: 50 * 1024 * 1024 // 50MB
+    }
+});
+
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'Файл не загружен' });
+        }
+        
+        const file = {
+            name: req.file.originalname,
+            url: '/uploads/' + req.file.filename,
+            size: req.file.size,
+            type: req.file.mimetype
+        };
+        
+        res.json({ success: true, file: file });
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Ошибка загрузки файла' });
+    }
+});
+
 // ===== API РОУТЫ =====
 
 // Регистрация
@@ -26,7 +71,6 @@ app.post('/api/register', async (req, res) => {
     try {
         const { name, phone, password } = req.body;
         
-        // Проверяем, существует ли пользователь
         const existing = await db.getUser(phone);
         if (existing) {
             return res.status(400).json({ error: 'Пользователь с таким номером уже существует' });
@@ -43,11 +87,10 @@ app.post('/api/register', async (req, res) => {
         
         await db.createUser(user);
         
-        // Отправляем код подтверждения
+        // Отправляем код подтверждения (если нужно)
         const code = String(Math.floor(100000 + Math.random() * 900000));
-        const expires = Date.now() + 5 * 60 * 1000; // 5 минут
+        const expires = Date.now() + 5 * 60 * 1000;
         await db.saveVerification(phone, code, expires);
-        
         console.log(`📱 Код для ${phone}: ${code}`);
         
         res.json({ 
@@ -115,7 +158,6 @@ app.post('/api/login', async (req, res) => {
             return res.status(400).json({ error: 'Неверный пароль' });
         }
         
-        // Если не подтвержден, отправляем код
         if (!user.verified) {
             const code = String(Math.floor(100000 + Math.random() * 900000));
             const expires = Date.now() + 5 * 60 * 1000;
@@ -145,6 +187,8 @@ app.post('/api/login', async (req, res) => {
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
+
+// ===== ОСТАЛЬНЫЕ РОУТЫ (без изменений) =====
 
 // Получить чаты пользователя
 app.get('/api/chats/:userId', async (req, res) => {
@@ -180,12 +224,11 @@ app.post('/api/chats', async (req, res) => {
     }
 });
 
-// Добавить контакт (создать приватный чат)
+// Добавить контакт
 app.post('/api/contacts', async (req, res) => {
     try {
         const { userId, contactId } = req.body;
         
-        // Проверяем, есть ли уже чат
         let chat = await db.getChatByUsers(userId, contactId);
         if (!chat) {
             chat = await db.createChat([userId, contactId]);
@@ -233,7 +276,7 @@ app.post('/api/messages/read', async (req, res) => {
 
 // ===== WEBSOCKET =====
 
-const onlineUsers = new Map(); // userId -> socketId
+const onlineUsers = new Map();
 
 io.on('connection', (socket) => {
     console.log('👤 Новое подключение:', socket.id);
@@ -241,30 +284,27 @@ io.on('connection', (socket) => {
     socket.on('userOnline', async (userId) => {
         onlineUsers.set(userId, socket.id);
         await db.setUserOnline(userId, true);
-        
-        // Уведомляем всех о том, что пользователь онлайн
         io.emit('userStatus', { userId, online: true });
         console.log(`🟢 ${userId} онлайн`);
     });
     
     socket.on('sendMessage', async (data) => {
         try {
-            const { chatId, senderId, text } = data;
+            const { chatId, senderId, text, file } = data;
             
             const message = {
                 id: Date.now().toString(),
                 chat_id: chatId,
                 sender_id: senderId,
-                text: text,
+                text: text || '',
+                file: file || null,
                 created_at: new Date().toISOString()
             };
             
             await db.createMessage(message);
             
-            // Получаем участников чата
             const participants = await db.getChatParticipants(chatId);
             
-            // Отправляем сообщение всем участникам
             for (const userId of participants) {
                 const socketId = onlineUsers.get(userId);
                 if (socketId) {
@@ -276,7 +316,6 @@ io.on('connection', (socket) => {
                 }
             }
             
-            // Обновляем список чатов у всех участников
             for (const userId of participants) {
                 const socketId = onlineUsers.get(userId);
                 if (socketId) {
@@ -313,7 +352,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
     console.log(`📱 Откройте http://localhost:${PORT} в браузере`);
-    console.log(`🌐 Для доступа с телефона используйте IP вашего компьютера`);
 });
-
-module.exports = { app, server, io };

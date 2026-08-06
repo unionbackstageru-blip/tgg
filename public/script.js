@@ -1,13 +1,33 @@
 /* ============================================================
-   Telegram Social Network - Клиент (с сервером)
+   Telegram Social Network - Клиент (с файлами и смайликами)
    ============================================================ */
 
-// ===== КОНФИГУРАЦИЯ =====
 const API_URL = window.location.origin;
 let socket = null;
 let currentUser = null;
 let currentChatId = null;
 let allChats = [];
+
+// ===== ЭМОДЗИ =====
+const EMOJIS = [
+    '😀', '😁', '😂', '🤣', '😃', '😄', '😅', '😆', '😉', '😊',
+    '😋', '😎', '😍', '🥰', '😘', '😗', '😙', '😚', '☺️', '🙂',
+    '🤗', '🤩', '🤔', '🤨', '😐', '😑', '😶', '🙄', '😏', '😣',
+    '😥', '😮', '🤐', '😯', '😪', '😫', '😴', '😌', '😛', '😜',
+    '😝', '🤤', '😒', '😓', '😔', '😕', '🙃', '🤑', '😲', '☹️',
+    '🙁', '😖', '😞', '😟', '😤', '😢', '😭', '😦', '😧', '😨',
+    '😩', '🤯', '😬', '😰', '😱', '🥵', '🥶', '😳', '🤪', '😵',
+    '😡', '😠', '🤬', '👍', '👎', '👊', '✊', '🤛', '🤜', '👏',
+    '🙌', '👐', '🤲', '🤝', '🙏', '✌️', '🤟', '🤘', '👌', '🤞',
+    '🤙', '💪', '🦾', '🖕', '❤️', '🧡', '💛', '💚', '💙', '💜',
+    '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💯', '💢', '💥', '🔥',
+    '✨', '⭐', '🌟', '💫', '☀️', '🌈', '☁️', '⛅', '🌧️', '🌨️',
+    '❄️', '☃️', '⛄', '🌊', '🌸', '🌺', '🌻', '🌹', '🌷', '🌿',
+    '🌵', '🌲', '🌳', '🍁', '🍂', '🍃', '🍇', '🍈', '🍉', '🍊',
+    '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓',
+    '🫐', '🥝', '🍅', '🫒', '🥥', '🥑', '🍆', '🥔', '🥕', '🌽',
+    '🥦', '🥬', '🥒', '🌶️', '🫑', '🥨', '🍞', '🥐', '🥖', '🥯'
+];
 
 // ===== API =====
 const api = {
@@ -16,15 +36,6 @@ const api = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, phone, password })
-        });
-        return res.json();
-    },
-
-    async verify(phone, code) {
-        const res = await fetch(`${API_URL}/api/verify`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, code })
         });
         return res.json();
     },
@@ -78,6 +89,17 @@ const api = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chatId, userId })
         });
+    },
+
+    async uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const res = await fetch(`${API_URL}/api/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        return res.json();
     }
 };
 
@@ -301,7 +323,6 @@ function getChatName(chat) {
     const participants = chat.participants || [];
     const others = participants.filter(id => id !== currentUser.id);
     if (others.length === 0) return 'Чат';
-    // Имя будет получено при загрузке чата
     return 'Собеседник';
 }
 
@@ -338,7 +359,6 @@ async function openChat(chatId) {
     document.getElementById('messageInput').disabled = false;
     document.getElementById('sendBtn').disabled = false;
 
-    // Отмечаем прочитанные
     await api.markAsRead(chatId, currentUser.id);
     loadChats();
 
@@ -369,14 +389,222 @@ async function renderMessages(chatId) {
         const isSent = msg.sender_id === currentUser.id;
         div.className = `message ${isSent ? 'sent' : 'received'}`;
         const time = formatTime(msg.created_at);
+        
+        let content = msg.text || '';
+        
+        // Если есть файл
+        if (msg.file) {
+            content += renderFileAttachment(msg.file, isSent);
+        }
+        
         div.innerHTML = `
-            ${msg.text}
+            ${content}
             <span class="time">${time}</span>
         `;
         area.appendChild(div);
     });
 
     area.scrollTop = area.scrollHeight;
+}
+
+// ===== РЕНДЕР ФАЙЛА В СООБЩЕНИИ =====
+function renderFileAttachment(file, isSent) {
+    const isImage = file.type && file.type.startsWith('image/');
+    const size = formatFileSize(file.size);
+    
+    if (isImage) {
+        return `
+            <div class="file-attachment" onclick="showFilePreview('${file.url}')">
+                <img src="${file.url}" class="file-preview-image" alt="${file.name}" loading="lazy">
+            </div>
+        `;
+    }
+    
+    return `
+        <div class="file-attachment" onclick="downloadFile('${file.url}')">
+            <i class="fas fa-${getFileIcon(file.name)}"></i>
+            <div class="file-info">
+                <div class="file-name">${file.name}</div>
+                <div class="file-size">${size}</div>
+            </div>
+        </div>
+    `;
+}
+
+// ===== ФАЙЛЫ =====
+
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        'pdf': 'file-pdf',
+        'doc': 'file-word',
+        'docx': 'file-word',
+        'xls': 'file-excel',
+        'xlsx': 'file-excel',
+        'ppt': 'file-powerpoint',
+        'pptx': 'file-powerpoint',
+        'txt': 'file-alt',
+        'zip': 'file-archive',
+        'rar': 'file-archive',
+        '7z': 'file-archive',
+        'mp3': 'file-audio',
+        'wav': 'file-audio',
+        'mp4': 'file-video',
+        'avi': 'file-video',
+        'mkv': 'file-video',
+        'json': 'file-code',
+        'js': 'file-code',
+        'html': 'file-code',
+        'css': 'file-code',
+        'xml': 'file-code'
+    };
+    return icons[ext] || 'file';
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
+async function uploadFiles(files) {
+    if (!files || files.length === 0) return;
+    
+    for (const file of files) {
+        try {
+            // Показываем прогресс
+            const progressId = showUploadProgress(file.name);
+            
+            // Загружаем файл
+            const result = await api.uploadFile(file);
+            
+            // Убираем прогресс
+            removeUploadProgress(progressId);
+            
+            // Отправляем сообщение с файлом
+            if (result.success) {
+                sendMessageWithFile(result.file);
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            showToast('Ошибка при загрузке файла', 'error');
+        }
+    }
+}
+
+function showUploadProgress(filename) {
+    const area = document.getElementById('messagesArea');
+    const id = 'progress-' + Date.now();
+    const div = document.createElement('div');
+    div.className = 'message sent';
+    div.id = id;
+    div.innerHTML = `
+        <div class="upload-progress">
+            <i class="fas fa-file"></i>
+            <div style="flex:1; min-width:0;">
+                <div style="color: #e0e0e0; font-size: 14px;">${filename}</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            <span class="progress-text">0%</span>
+        </div>
+    `;
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+    return id;
+}
+
+function updateUploadProgress(id, percent) {
+    const el = document.getElementById(id);
+    if (el) {
+        const fill = el.querySelector('.progress-fill');
+        const text = el.querySelector('.progress-text');
+        if (fill) fill.style.width = percent + '%';
+        if (text) text.textContent = percent + '%';
+    }
+}
+
+function removeUploadProgress(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+}
+
+function sendMessageWithFile(file) {
+    const message = {
+        chatId: currentChatId,
+        senderId: currentUser.id,
+        text: '',
+        file: file
+    };
+    socket.emit('sendMessage', message);
+}
+
+// ===== ПОКАЗ ФАЙЛА =====
+
+function showFilePreview(url) {
+    const modal = document.getElementById('filePreviewModal');
+    const content = document.getElementById('filePreviewContent');
+    
+    // Определяем тип файла
+    const isImage = url.match(/\.(jpg|jpeg|png|gif|bmp|webp|svg)/i);
+    
+    if (isImage) {
+        content.innerHTML = `<img src="${url}" alt="Preview" onclick="window.open('${url}', '_blank')">`;
+    } else {
+        content.innerHTML = `
+            <div class="file-preview-info">
+                <i class="fas fa-file"></i>
+                <p>Предпросмотр недоступен</p>
+                <button onclick="window.open('${url}', '_blank')" class="auth-btn" style="margin-top: 12px;">
+                    <i class="fas fa-download"></i> Скачать
+                </button>
+            </div>
+        `;
+    }
+    
+    modal.classList.add('show');
+}
+
+function closeFilePreview() {
+    document.getElementById('filePreviewModal').classList.remove('show');
+}
+
+function downloadFile(url) {
+    window.open(url, '_blank');
+}
+
+// ===== ЭМОДЗИ =====
+
+function initEmojiPanel() {
+    const grid = document.getElementById('emojiGrid');
+    grid.innerHTML = '';
+    
+    EMOJIS.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.className = 'emoji-item';
+        btn.textContent = emoji;
+        btn.addEventListener('click', () => {
+            insertEmoji(emoji);
+        });
+        grid.appendChild(btn);
+    });
+}
+
+function toggleEmojiPanel() {
+    const panel = document.getElementById('emojiPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function insertEmoji(emoji) {
+    const input = document.getElementById('messageInput');
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    input.value = input.value.substring(0, start) + emoji + input.value.substring(end);
+    input.focus();
+    input.selectionStart = input.selectionEnd = start + emoji.length;
+    document.getElementById('emojiPanel').style.display = 'none';
 }
 
 // ===== ОТПРАВКА =====
@@ -389,11 +617,20 @@ function sendMessage() {
     socket.emit('sendMessage', {
         chatId: currentChatId,
         senderId: currentUser.id,
-        text: text
+        text: text,
+        file: null
     });
 
     input.value = '';
-    // Сообщение добавится через WebSocket
+}
+
+function sendMessageWithFile(file) {
+    socket.emit('sendMessage', {
+        chatId: currentChatId,
+        senderId: currentUser.id,
+        text: '',
+        file: file
+    });
 }
 
 // ===== КОНТАКТЫ =====
@@ -433,38 +670,14 @@ async function addContact() {
     openChat(result.chat.id);
 }
 
-// ===== ПОИСК =====
+// ===== ОБРАБОТЧИКИ =====
 
 document.getElementById('searchInput').addEventListener('input', (e) => {
     renderChats(e.target.value);
 });
 
-// ===== КОД ПОДТВЕРЖДЕНИЯ =====
-
-document.querySelectorAll('.code-input').forEach((input, index, arr) => {
-    input.addEventListener('input', (e) => {
-        if (e.target.value) {
-            if (index < arr.length - 1) {
-                arr[index + 1].focus();
-            } else {
-                setTimeout(verifyCode, 300);
-            }
-        }
-    });
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Backspace' && !e.target.value && index > 0) {
-            arr[index - 1].focus();
-        }
-        if (e.key === 'Enter') verifyCode();
-    });
-    input.addEventListener('keypress', (e) => {
-        if (!/[0-9]/.test(e.key)) e.preventDefault();
-    });
-});
-
-// ===== ОБРАБОТЧИКИ =====
-
 document.getElementById('sendBtn').addEventListener('click', sendMessage);
+
 document.getElementById('messageInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendMessage();
 });
@@ -475,6 +688,18 @@ document.getElementById('mobileBack').addEventListener('click', () => {
 
 document.getElementById('addContactModal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
+});
+
+// Эмодзи
+document.getElementById('emojiBtn').addEventListener('click', toggleEmojiPanel);
+
+// Файлы
+document.getElementById('fileInput').addEventListener('change', (e) => {
+    const files = e.target.files;
+    if (files.length > 0) {
+        uploadFiles(files);
+    }
+    e.target.value = ''; // Сброс
 });
 
 // ===== УВЕДОМЛЕНИЯ =====
@@ -489,5 +714,9 @@ function showToast(text, type = 'info', duration = 3000) {
     setTimeout(() => toast.remove(), duration);
 }
 
+// ===== ИНИЦИАЛИЗАЦИЯ =====
+
+initEmojiPanel();
+
 console.log('✅ Telegram Social Network готова к работе!');
-console.log('📱 Используйте регистрацию, чтобы начать');
+console.log('📎 Добавлены файлы и смайлики!');

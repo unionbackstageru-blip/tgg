@@ -18,6 +18,7 @@
                 <p>Социальная сеть</p>
             </div>
             
+            <!-- Вход -->
             <div id="loginForm" class="auth-form">
                 <h2>Вход</h2>
                 <div class="input-group">
@@ -32,6 +33,7 @@
                 <p class="auth-switch">Нет аккаунта? <span onclick="showRegister()">Зарегистрироваться</span></p>
             </div>
 
+            <!-- Регистрация -->
             <div id="registerForm" class="auth-form" style="display:none;">
                 <h2>Регистрация</h2>
                 <div class="input-group">
@@ -50,6 +52,7 @@
                 <p class="auth-switch">Уже есть аккаунт? <span onclick="showLogin()">Войти</span></p>
             </div>
 
+            <!-- Подтверждение -->
             <div id="verifyForm" class="auth-form" style="display:none;">
                 <h2>Подтверждение</h2>
                 <p style="color: #6a6a6a; text-align: center; margin-bottom: 20px; font-size: 14px;">
@@ -133,15 +136,29 @@
             </div>
 
             <div class="chat-input">
-                <i class="fas fa-smile attach"></i>
-                <i class="fas fa-paperclip attach"></i>
+                <!-- Кнопка смайликов -->
+                <button class="input-btn" id="emojiBtn" title="Смайлики">
+                    <i class="far fa-smile"></i>
+                </button>
+                
+                <!-- Кнопка прикрепления файла -->
+                <label class="input-btn" for="fileInput" title="Прикрепить файл">
+                    <i class="fas fa-paperclip"></i>
+                </label>
+                <input type="file" id="fileInput" multiple style="display:none;">
+                
                 <input type="text" id="messageInput" placeholder="Сообщение..." disabled>
                 <button id="sendBtn" disabled><i class="fas fa-paper-plane"></i></button>
+            </div>
+
+            <!-- Эмодзи-панель -->
+            <div id="emojiPanel" class="emoji-panel" style="display:none;">
+                <div class="emoji-grid" id="emojiGrid"></div>
             </div>
         </div>
     </div>
 
-    <!-- ===== МОДАЛЬНОЕ ОКНО ===== -->
+    <!-- ===== МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ КОНТАКТА ===== -->
     <div id="addContactModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -158,6 +175,19 @@
                     <input type="tel" id="contactPhone" placeholder="Номер телефона" value="+7">
                 </div>
                 <button onclick="addContact()" class="auth-btn">Добавить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ПРЕВЬЮ ФАЙЛОВ ===== -->
+    <div id="filePreviewModal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Превью файла</h2>
+                <span class="close" onclick="closeFilePreview()">&times;</span>
+            </div>
+            <div class="modal-body" id="filePreviewBody">
+                <div id="filePreviewContent"></div>
             </div>
         </div>
     </div>
