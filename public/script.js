@@ -10,10 +10,9 @@ let allChats = [];
 let selectedMembers = [];
 let createChatType = 'group';
 let searchTimeout = null;
-let isSocketConnected = false;
 
 // ===== ЭМОДЗИ =====
-const EMOJIS = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','☺️','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✌️','🤟','🤘','👌','🤞','🤙','💪','🦾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💯','💢','💥','🔥','✨','⭐','🌟','💫','☀️','🌈','☁️','⛅','🌧️','🌨️','❄️','☃️','⛄','🌊','🌸','🌺','🌻','🌹','🌷','🌿','🌵','🌲','🌳','🍁','🍂','🍃','🍇','🍈','🍉','🍊','🍋','🍌','🍍','🥭','🍎','🍏','🍐','🍑','🍒','🍓'];
+const EMOJIS = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','☺️','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✌️','🤟','🤘','👌','🤞','🤙','💪','🦾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💯','💢','💥','🔥'];
 
 // ===== API =====
 const api = {
@@ -115,7 +114,6 @@ function connectSocket(userId) {
     if (socket) {
         socket.disconnect();
         socket = null;
-        isSocketConnected = false;
     }
     
     socket = io(API_URL, {
@@ -127,25 +125,21 @@ function connectSocket(userId) {
     
     socket.on('connect', () => {
         console.log('✅ WebSocket подключен');
-        isSocketConnected = true;
         socket.emit('userOnline', userId);
         showToast('🟢 Подключено к серверу', 'success');
     });
     
     socket.on('connect_error', (error) => {
         console.error('❌ WebSocket ошибка:', error);
-        isSocketConnected = false;
         showToast('⚠️ Ошибка подключения к серверу', 'error');
     });
     
     socket.on('disconnect', () => {
         console.log('🔌 WebSocket отключен');
-        isSocketConnected = false;
     });
     
     socket.on('reconnect', () => {
         console.log('🔄 WebSocket переподключен');
-        isSocketConnected = true;
         socket.emit('userOnline', userId);
     });
     
@@ -308,21 +302,26 @@ function loginUser(user) {
 }
 
 function updateProfileUI(user) {
-    document.getElementById('profileName').textContent = user.name;
-    document.getElementById('profilePhone').textContent = user.phone;
-    document.getElementById('profileUsername').textContent = user.username ? '@' + user.username : '@username';
-    
     const avatarText = document.getElementById('profileAvatarText');
     const avatarImg = document.getElementById('profileAvatarImg');
+    const profileName = document.getElementById('profileName');
+    const profileUsername = document.getElementById('profileUsername');
+    
+    if (profileName) profileName.textContent = user.name;
+    if (profileUsername) profileUsername.textContent = user.username ? '@' + user.username : '@username';
     
     if (user.avatar && user.avatar.startsWith('http')) {
-        avatarImg.src = user.avatar;
-        avatarImg.style.display = 'block';
-        avatarText.style.display = 'none';
+        if (avatarImg) {
+            avatarImg.src = user.avatar;
+            avatarImg.style.display = 'block';
+        }
+        if (avatarText) avatarText.style.display = 'none';
     } else {
-        avatarText.textContent = user.name.charAt(0).toUpperCase();
-        avatarText.style.display = 'block';
-        avatarImg.style.display = 'none';
+        if (avatarText) {
+            avatarText.textContent = user.name.charAt(0).toUpperCase();
+            avatarText.style.display = 'block';
+        }
+        if (avatarImg) avatarImg.style.display = 'none';
     }
 }
 
@@ -330,7 +329,6 @@ function logout() {
     if (socket) {
         socket.disconnect();
         socket = null;
-        isSocketConnected = false;
     }
     localStorage.removeItem('telefon_user_id');
     currentUser = null;
@@ -346,6 +344,8 @@ function logout() {
 function openSettings() {
     if (!currentUser) return;
     const modal = document.getElementById('settingsModal');
+    if (!modal) return;
+    
     document.getElementById('settingsName').value = currentUser.name || '';
     document.getElementById('settingsUsername').value = currentUser.username || '';
     document.getElementById('settingsBio').value = currentUser.bio || '';
@@ -367,7 +367,8 @@ function openSettings() {
 }
 
 function closeSettings() {
-    document.getElementById('settingsModal').classList.remove('show');
+    const modal = document.getElementById('settingsModal');
+    if (modal) modal.classList.remove('show');
 }
 
 document.getElementById('avatarInput').addEventListener('change', function(e) {
@@ -376,9 +377,12 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
         const reader = new FileReader();
         reader.onload = function(event) {
             const img = document.getElementById('settingsAvatarImg');
-            img.src = event.target.result;
-            img.style.display = 'block';
-            document.getElementById('settingsAvatarText').style.display = 'none';
+            const text = document.getElementById('settingsAvatarText');
+            if (img) {
+                img.src = event.target.result;
+                img.style.display = 'block';
+            }
+            if (text) text.style.display = 'none';
             window.tempAvatar = event.target.result;
         };
         reader.readAsDataURL(file);
@@ -436,6 +440,7 @@ async function searchUsers(query) {
     if (!currentUser) return;
     const results = await api.searchUsers(query, currentUser.id);
     const list = document.getElementById('chatList');
+    if (!list) return;
     list.innerHTML = '';
     
     if (results.length === 0) {
@@ -484,6 +489,7 @@ async function loadChats() {
 
 function renderChats() {
     const list = document.getElementById('chatList');
+    if (!list) return;
     list.innerHTML = '';
 
     if (!allChats || allChats.length === 0) {
@@ -570,6 +576,7 @@ async function openChat(chatId) {
 
 async function renderMessages(chatId) {
     const area = document.getElementById('messagesArea');
+    if (!area) return;
     area.innerHTML = '';
 
     const messages = await api.getMessages(chatId);
@@ -645,17 +652,14 @@ async function uploadFiles(files) {
             const result = await api.uploadFile(file);
             if (result.success) {
                 console.log('📤 Отправка файла:', result.file);
-                // Проверяем подключение перед отправкой
-                if (!socket || !isSocketConnected) {
-                    showToast('⚠️ Нет подключения к серверу', 'error');
-                    return;
+                if (socket) {
+                    socket.emit('sendMessage', {
+                        chatId: currentChatId,
+                        senderId: currentUser.id,
+                        text: '',
+                        file: result.file
+                    });
                 }
-                socket.emit('sendMessage', {
-                    chatId: currentChatId,
-                    senderId: currentUser.id,
-                    text: '',
-                    file: result.file
-                });
                 showToast(`✅ Файл ${file.name} отправлен!`, 'success');
             }
         } catch (error) {
@@ -669,6 +673,7 @@ async function uploadFiles(files) {
 
 function initEmojiPanel() {
     const grid = document.getElementById('emojiGrid');
+    if (!grid) return;
     grid.innerHTML = '';
     EMOJIS.forEach(emoji => {
         const btn = document.createElement('button');
@@ -676,9 +681,12 @@ function initEmojiPanel() {
         btn.textContent = emoji;
         btn.addEventListener('click', () => {
             const input = document.getElementById('messageInput');
-            input.value += emoji;
-            input.focus();
-            document.getElementById('emojiPanel').style.display = 'none';
+            if (input) {
+                input.value += emoji;
+                input.focus();
+            }
+            const panel = document.getElementById('emojiPanel');
+            if (panel) panel.style.display = 'none';
         });
         grid.appendChild(btn);
     });
@@ -686,51 +694,39 @@ function initEmojiPanel() {
 
 function toggleEmojiPanel() {
     const panel = document.getElementById('emojiPanel');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
 }
 
-// ===== ОТПРАВКА СООБЩЕНИЙ (ИСПРАВЛЕНО) =====
+// ===== ОТПРАВКА СООБЩЕНИЙ =====
 
 function sendMessage() {
     const input = document.getElementById('messageInput');
+    if (!input) return;
     const text = input.value.trim();
     
-    // Проверяем, что есть сообщение
     if (!text) {
         showToast('Введите сообщение', 'error');
         return;
     }
     
-    // Проверяем, что выбран чат
     if (!currentChatId) {
         showToast('Выберите чат', 'error');
         return;
     }
     
-    // Проверяем, что есть текущий пользователь
     if (!currentUser) {
         showToast('Ошибка авторизации', 'error');
         return;
     }
     
-    // ПРОВЕРЯЕМ ПОДКЛЮЧЕНИЕ WEBSOCKET
     if (!socket) {
-        console.error('❌ Socket не инициализирован');
         showToast('⚠️ Нет подключения к серверу. Перезагрузите страницу.', 'error');
-        // Пытаемся переподключиться
-        connectSocket(currentUser.id);
         return;
     }
     
-    if (!isSocketConnected) {
-        console.error('❌ Socket не подключен');
-        showToast('⚠️ Потеряно соединение с сервером. Переподключение...', 'error');
-        // Пытаемся переподключиться
-        connectSocket(currentUser.id);
-        return;
-    }
-    
-    console.log('📤 Отправка сообщения:', { chatId: currentChatId, text, socket: !!socket, connected: isSocketConnected });
+    console.log('📤 Отправка сообщения:', { chatId: currentChatId, text });
     
     try {
         socket.emit('sendMessage', {
@@ -739,7 +735,6 @@ function sendMessage() {
             text: text,
             file: null
         });
-        
         input.value = '';
         showToast('✅ Сообщение отправлено', 'success');
     } catch (error) {
@@ -782,10 +777,10 @@ async function addMemberByUsername() {
 
 function renderMembersList() {
     const container = document.getElementById('membersList');
+    if (!container) return;
     container.innerHTML = selectedMembers.map(id => {
-        // Показываем ID, но лучше найти имя
         return `<span class="member-tag">
-            Участник ${id.slice(-4)}
+            Участник
             <span class="remove-member" onclick="selectedMembers=selectedMembers.filter(i=>i!=='${id}');renderMembersList();">&times;</span>
         </span>`;
     }).join('');
@@ -847,22 +842,46 @@ async function addContact() {
 
 // ===== ОБРАБОТЧИКИ =====
 
-document.getElementById('sendBtn').addEventListener('click', sendMessage);
-document.getElementById('messageInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
+document.addEventListener('DOMContentLoaded', function() {
+    const sendBtn = document.getElementById('sendBtn');
+    const messageInput = document.getElementById('messageInput');
+    const emojiBtn = document.getElementById('emojiBtn');
+    const fileInput = document.getElementById('fileInput');
+    const mobileBack = document.getElementById('mobileBack');
+    const searchInput = document.getElementById('searchInput');
+    
+    if (sendBtn) sendBtn.addEventListener('click', sendMessage);
+    if (messageInput) {
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
     }
-});
-
-document.getElementById('mobileBack').addEventListener('click', () => {
-    document.getElementById('rightPanel').classList.remove('active-mobile');
-});
-
-document.getElementById('emojiBtn').addEventListener('click', toggleEmojiPanel);
-document.getElementById('fileInput').addEventListener('change', (e) => {
-    uploadFiles(e.target.files);
-    e.target.value = '';
+    if (mobileBack) {
+        mobileBack.addEventListener('click', () => {
+            document.getElementById('rightPanel').classList.remove('active-mobile');
+        });
+    }
+    if (emojiBtn) emojiBtn.addEventListener('click', toggleEmojiPanel);
+    if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+            uploadFiles(e.target.files);
+            e.target.value = '';
+        });
+    }
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim();
+            if (query.length > 1) {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => searchUsers(query), 300);
+            } else {
+                renderChats();
+            }
+        });
+    }
 });
 
 // Закрытие модалок
@@ -911,7 +930,6 @@ function showToast(text, type = 'info', duration = 3000) {
 
 initEmojiPanel();
 
-// Восстанавливаем сессию
 restoreSession().then(restored => {
     if (!restored) {
         console.log('🔐 Сессия не восстановлена');
@@ -919,4 +937,3 @@ restoreSession().then(restored => {
 });
 
 console.log('✅ TeleFon Social Network готова!');
-console.log('📱 Название: TeleFon');

@@ -13,7 +13,6 @@
     <div id="authScreen" class="auth-screen">
         <div class="auth-container">
             <div class="auth-logo">
-                <!-- ЛОГОТИП TELEFON -->
                 <div class="logo-icon">
                     <i class="fas fa-phone-alt"></i>
                     <i class="fas fa-comment-dots"></i>
@@ -92,7 +91,7 @@
                 </div>
                 <div class="search-box">
                     <i class="fas fa-search"></i>
-                    <input type="text" placeholder="Поиск по username" id="searchInput">
+                    <input type="text" placeholder="Поиск" id="searchInput">
                 </div>
             </div>
             
@@ -105,7 +104,12 @@
                 </div>
             </div>
             
-            <div class="chat-list" id="chatList"></div>
+            <div class="chat-list" id="chatList">
+                <div style="padding:40px 20px;text-align:center;color:#6a6a6a;">
+                    <p>У вас пока нет чатов</p>
+                    <p style="font-size:13px;margin-top:8px;">Добавьте контакт или создайте группу</p>
+                </div>
+            </div>
             
             <div class="user-profile">
                 <div class="profile-avatar" onclick="openSettings()">
@@ -163,7 +167,6 @@
 
     <!-- ===== МОДАЛЬНЫЕ ОКНА ===== -->
     
-    <!-- Настройки -->
     <div id="settingsModal" class="modal">
         <div class="modal-content" style="max-width:500px;">
             <div class="modal-header">
@@ -198,7 +201,6 @@
         </div>
     </div>
 
-    <!-- Создание чата -->
     <div id="createChatModal" class="modal">
         <div class="modal-content" style="max-width:450px;">
             <div class="modal-header">
@@ -227,7 +229,6 @@
         </div>
     </div>
 
-    <!-- Добавление контакта -->
     <div id="addContactModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
