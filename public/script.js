@@ -12,7 +12,6 @@ let createChatType = 'group';
 let searchTimeout = null;
 let currentChatUser = null;
 let replyingTo = null;
-let editingMessageId = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
@@ -20,6 +19,11 @@ let recordingStartTime = null;
 let recordingTimer = null;
 let voiceDuration = 0;
 let lastMessageId = null;
+
+// ===== ПЕРЕМЕННЫЕ ДЛЯ ДИАЛОГОВ =====
+let deleteMessageId = null;
+let editMessageId = null;
+let forwardMessageId = null;
 
 // ===== API =====
 const api = {
@@ -203,7 +207,6 @@ const api = {
             body: JSON.stringify({ chatId, userId, text })
         });
     },
-    // ===== НОВЫЕ МЕТОДЫ =====
     async leaveChat(chatId, userId) {
         const res = await fetch(`${API_URL}/api/chat/leave`, {
             method: 'POST',
@@ -294,15 +297,6 @@ function showToast(text, type = 'info', duration = 3000) {
     toast.textContent = text;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), duration);
-}
-
-function getUsernameColor(username) {
-    let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-        hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const colors = ['#e17055', '#00b894', '#0984e3', '#fdcb6e', '#e84393', '#6c5ce7', '#00cec9', '#fd79a8', '#a29bfe'];
-    return colors[Math.abs(hash) % colors.length];
 }
 
 // ===== ЭМОДЗИ =====
@@ -734,6 +728,11 @@ function renderChats() {
         const time = formatTime(chat.last_message_time);
         const unread = chat.unread || 0;
         const isMuted = chat.isMuted || false;
+        
+        let typeIcon = '';
+        if (chat.type === 'channel') typeIcon = '📢 ';
+        else if (chat.type === 'group') typeIcon = '👥 ';
+        else typeIcon = '💬 ';
 
         const item = document.createElement('div');
         item.className = `chat-item ${chat.id === currentChatId ? 'active' : ''}`;
@@ -744,7 +743,7 @@ function renderChats() {
             </div>
             <div class="chat-info">
                 <div class="name">
-                    ${name}
+                    ${typeIcon}${name}
                     ${isMuted ? '🔇' : ''}
                     ${unread > 0 ? `<span class="badge">${unread}</span>` : ''}
                 </div>
@@ -787,6 +786,7 @@ async function openChat(chatId) {
     document.getElementById('chatName').textContent = name;
     updateChatStatus();
     
+    // Обновляем аватар в шапке
     const avatarText = document.getElementById('chatAvatarText');
     const avatarImg = document.getElementById('chatAvatarImg');
     if (avatar && avatar.startsWith('http')) {
@@ -799,7 +799,7 @@ async function openChat(chatId) {
         avatarImg.style.display = 'none';
     }
     
-    // Применяем обои если есть
+    // Применяем обои
     if (chat.wallpaper) {
         document.getElementById('messagesArea').style.backgroundImage = `url(${chat.wallpaper})`;
         document.getElementById('messagesArea').style.backgroundSize = 'cover';
@@ -864,14 +864,17 @@ async function renderMessages(chatId) {
         const time = formatTime(msg.created_at);
         let content = '';
         
+        // Ответ
         if (msg.reply_to) {
             content += `<div class="reply-to">↩️ Ответ</div>`;
         }
         
+        // Текст
         if (msg.text) {
             content += msg.text;
         }
         
+        // Файл
         if (msg.file) {
             try {
                 const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
@@ -907,7 +910,7 @@ async function renderMessages(chatId) {
             } catch (e) {}
         }
         
-        // ===== ГОЛОСОВОЕ СООБЩЕНИЕ =====
+        // Голосовое
         if (msg.voice_duration > 0) {
             content += `
                 <div class="voice-message">
@@ -915,8 +918,6 @@ async function renderMessages(chatId) {
                         <i class="fas fa-play"></i>
                     </button>
                     <div class="voice-waveform">
-                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
-                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
                         <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
                         <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
                         <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
@@ -930,6 +931,7 @@ async function renderMessages(chatId) {
             content += ` <span style="font-size:11px;color:#888;">(ред.)</span>`;
         }
         
+        // Статус
         let statusIcon = '';
         if (isSent) {
             if (msg.status === 'sent') {
@@ -941,8 +943,10 @@ async function renderMessages(chatId) {
             }
         }
         
+        // Реакции
         const reactionsHtml = `<div class="message-reactions" id="reactions-${msg.id}"></div>`;
         
+        // Меню действий
         const actionsHtml = `
             <div class="message-actions">
                 ${isSent ? `<button onclick="editMessage('${msg.id}')" title="Редактировать"><i class="fas fa-edit"></i></button>` : ''}
@@ -1072,33 +1076,32 @@ function cancelReply() {
     document.getElementById('messageInput').placeholder = 'Сообщение...';
 }
 
-async function editMessage(messageId) {
-    const newText = prompt('Редактировать сообщение:');
-    if (!newText) return;
-    const result = await api.editMessage(messageId, newText, currentUser.id);
-    if (result.success) {
-        renderMessages(currentChatId);
-        if (socket) {
-            socket.emit('messageEdited', { messageId, text: newText, chatId: currentChatId });
-        }
-    }
+// ===== УДАЛЕНИЕ С ДИАЛОГОМ =====
+function deleteMessage(messageId) {
+    deleteMessageId = messageId;
+    document.getElementById('deleteMessageModal').classList.add('show');
 }
 
-// ===== УДАЛЕНИЕ СООБЩЕНИЯ (С ВЫБОРОМ) =====
-async function deleteMessage(messageId) {
-    const choice = confirm('Удалить сообщение:\n\n"OK" - удалить у всех\n"Отмена" - удалить только у себя');
+function closeDeleteModal() {
+    document.getElementById('deleteMessageModal').classList.remove('show');
+    deleteMessageId = null;
+}
+
+async function confirmDeleteMessage() {
+    if (!deleteMessageId) return;
+    const forEveryone = document.getElementById('deleteForEveryone').checked;
     
     let result;
-    if (choice) {
-        result = await api.deleteMessageForEveryone(messageId);
+    if (forEveryone) {
+        result = await api.deleteMessageForEveryone(deleteMessageId);
         if (result.success) {
             showToast('🗑️ Сообщение удалено у всех', 'success');
             if (socket) {
-                socket.emit('messageDeleted', { messageId, chatId: currentChatId });
+                socket.emit('messageDeleted', { messageId: deleteMessageId, chatId: currentChatId });
             }
         }
     } else {
-        result = await api.deleteMessageForMe(messageId, currentUser.id);
+        result = await api.deleteMessageForMe(deleteMessageId, currentUser.id);
         if (result.success) {
             showToast('🗑️ Сообщение удалено у вас', 'success');
         }
@@ -1107,21 +1110,436 @@ async function deleteMessage(messageId) {
     if (result.success) {
         renderMessages(currentChatId);
     }
+    closeDeleteModal();
 }
 
+// ===== РЕДАКТИРОВАНИЕ С ДИАЛОГОМ =====
+function editMessage(messageId) {
+    editMessageId = messageId;
+    const msg = document.querySelector(`.message[data-message-id="${messageId}"]`);
+    if (msg) {
+        let text = msg.textContent.trim();
+        document.getElementById('editMessageInput').value = text;
+    }
+    document.getElementById('editMessageModal').classList.add('show');
+}
+
+function closeEditModal() {
+    document.getElementById('editMessageModal').classList.remove('show');
+    editMessageId = null;
+}
+
+async function confirmEditMessage() {
+    if (!editMessageId) return;
+    const newText = document.getElementById('editMessageInput').value.trim();
+    if (!newText) {
+        showToast('Введите текст', 'error');
+        return;
+    }
+    
+    const result = await api.editMessage(editMessageId, newText, currentUser.id);
+    if (result.success) {
+        showToast('✅ Сообщение обновлено', 'success');
+        renderMessages(currentChatId);
+        if (socket) {
+            socket.emit('messageEdited', { messageId: editMessageId, text: newText, chatId: currentChatId });
+        }
+    }
+    closeEditModal();
+}
+
+// ===== ПЕРЕСЫЛКА =====
 function forwardMessage(messageId) {
-    showToast('Выберите чат для пересылки', 'info');
+    forwardMessageId = messageId;
+    const list = document.getElementById('forwardChatList');
+    list.innerHTML = '';
+    
+    allChats.forEach(chat => {
+        const name = chat.displayName || chat.name || 'Чат';
+        const item = document.createElement('div');
+        item.className = 'chat-item';
+        item.innerHTML = `
+            <div class="chat-avatar">${name.charAt(0).toUpperCase()}</div>
+            <div class="chat-info">
+                <div class="name">${name}</div>
+                <div class="last-msg">${chat.last_message || 'Нет сообщений'}</div>
+            </div>
+        `;
+        item.addEventListener('click', () => confirmForward(chat.id));
+        list.appendChild(item);
+    });
+    
+    document.getElementById('forwardMessageModal').classList.add('show');
 }
 
-async function pinMessage(messageId) {
-    await api.pinMessage(currentChatId, messageId);
-    showToast('📌 Сообщение закреплено!', 'success');
+function closeForwardModal() {
+    document.getElementById('forwardMessageModal').classList.remove('show');
+    forwardMessageId = null;
 }
 
-async function unpinMessage() {
-    await api.unpinMessage(currentChatId);
-    document.getElementById('pinnedMessage').style.display = 'none';
-    showToast('📌 Сообщение откреплено!', 'success');
+async function confirmForward(chatId) {
+    if (!forwardMessageId) return;
+    
+    const messages = await api.getMessages(currentChatId);
+    const msg = messages.find(m => m.id === forwardMessageId);
+    if (!msg) {
+        showToast('❌ Сообщение не найдено', 'error');
+        return;
+    }
+    
+    if (socket) {
+        socket.emit('sendMessage', {
+            chatId: chatId,
+            senderId: currentUser.id,
+            text: `[Переслано] ${msg.text || ''}`,
+            file: msg.file || null,
+            forwarded_from: msg.sender_id
+        });
+        showToast('✅ Сообщение переслано!', 'success');
+    }
+    
+    closeForwardModal();
+}
+
+// ===== ПРОСМОТР ПРОФИЛЯ =====
+
+async function openUserProfile() {
+    if (!currentChatUser) {
+        showToast('Пользователь не выбран', 'error');
+        return;
+    }
+    await loadUserProfile(currentChatUser);
+}
+
+async function loadUserProfile(userId) {
+    try {
+        const user = await api.getUserProfile(userId);
+        if (!user) {
+            showToast('Пользователь не найден', 'error');
+            return;
+        }
+        
+        document.getElementById('profileViewName').textContent = user.name;
+        document.getElementById('profileViewUsername').textContent = '@' + (user.username || 'username');
+        document.getElementById('profileViewBio').textContent = user.bio || 'О себе не указано';
+        document.getElementById('profileViewPhone').textContent = user.phone;
+        document.getElementById('profileViewStatus').textContent = user.online ? '🟢 онлайн' : '⚫ офлайн';
+        document.getElementById('profileViewJoined').textContent = 'В сети с ' + new Date(user.created_at).toLocaleDateString('ru-RU');
+        
+        const avatarText = document.getElementById('profileViewAvatarText');
+        const avatarImg = document.getElementById('profileViewAvatar');
+        
+        if (user.avatar && user.avatar.startsWith('http')) {
+            avatarImg.src = user.avatar;
+            avatarImg.style.display = 'block';
+            avatarText.style.display = 'none';
+        } else {
+            avatarText.textContent = user.name.charAt(0).toUpperCase();
+            avatarText.style.display = 'flex';
+            avatarImg.style.display = 'none';
+        }
+        
+        document.getElementById('userProfileModal').classList.add('show');
+    } catch (error) {
+        console.error('Ошибка загрузки профиля:', error);
+        showToast('Ошибка загрузки профиля', 'error');
+    }
+}
+
+function closeUserProfile() {
+    document.getElementById('userProfileModal').classList.remove('show');
+}
+
+function sendMessageToProfile() {
+    closeUserProfile();
+    if (profileUserId) {
+        openChatWithUser(profileUserId);
+    }
+}
+
+async function blockUser() {
+    if (!currentUser || !profileUserId) return;
+    const result = await api.blockUser(currentUser.id, profileUserId);
+    if (result.success) {
+        showToast('🚫 Пользователь заблокирован', 'success');
+        closeUserProfile();
+    }
+}
+
+// ===== СОЗДАНИЕ ЧАТА =====
+
+function showCreateChat(type) {
+    createChatType = type;
+    selectedMembers = [];
+    document.getElementById('createChatTitle').textContent = type === 'channel' ? '📢 Создать канал' : '👥 Создать группу';
+    document.getElementById('chatNameInput').value = '';
+    document.getElementById('chatUsernameInput').value = '';
+    document.getElementById('chatDescriptionInput').value = '';
+    document.getElementById('chatAvatarInput').value = '';
+    document.getElementById('memberSearchInput').value = '';
+    document.getElementById('membersList').innerHTML = '';
+    document.getElementById('addMembersArea').style.display = type === 'channel' ? 'none' : 'block';
+    document.getElementById('createChatModal').classList.add('show');
+}
+
+function closeCreateChat() {
+    document.getElementById('createChatModal').classList.remove('show');
+}
+
+async function addMemberByUsername() {
+    const username = document.getElementById('memberSearchInput').value.trim();
+    if (!username) { showToast('Введите username', 'error'); return; }
+    
+    const results = await api.searchUsers(username, currentUser.id);
+    const user = results.find(u => u.username === username);
+    if (!user) { showToast('Пользователь не найден', 'error'); return; }
+    if (selectedMembers.includes(user.id)) { showToast('Уже добавлен', 'info'); return; }
+    
+    selectedMembers.push(user.id);
+    document.getElementById('memberSearchInput').value = '';
+    renderMembersList();
+}
+
+function renderMembersList() {
+    const container = document.getElementById('membersList');
+    if (!container) return;
+    container.innerHTML = selectedMembers.map(id => {
+        return `<span class="member-tag">Участник <span class="remove-member" onclick="selectedMembers=selectedMembers.filter(i=>i!=='${id}');renderMembersList();">&times;</span></span>`;
+    }).join('');
+}
+
+async function createChat() {
+    const name = document.getElementById('chatNameInput').value.trim();
+    const username = document.getElementById('chatUsernameInput').value.trim();
+    const description = document.getElementById('chatDescriptionInput').value.trim();
+    const avatar = document.getElementById('chatAvatarInput').value.trim();
+    if (!name) { showToast('Введите название', 'error'); return; }
+    
+    const data = {
+        name,
+        type: createChatType,
+        createdBy: currentUser.id,
+        description: description || null,
+        participants: createChatType === 'channel' ? [] : selectedMembers,
+        avatar: avatar || null
+    };
+    
+    if (username && createChatType === 'channel') {
+        data.username = username;
+    }
+    
+    const result = await api.createChat(data);
+    
+    if (result.error) {
+        showToast(result.error, 'error');
+        return;
+    }
+    
+    showToast(`✅ ${createChatType === 'channel' ? 'Канал' : 'Группа'} создана!`, 'success');
+    closeCreateChat();
+    loadChats();
+    openChat(result.chat.id);
+}
+
+// ===== КОНТАКТЫ =====
+
+function showAddContact() {
+    document.getElementById('addContactModal').classList.add('show');
+    document.getElementById('contactName').value = '';
+    document.getElementById('contactPhone').value = '+7';
+}
+
+function closeModal() {
+    document.getElementById('addContactModal').classList.remove('show');
+}
+
+async function addContact() {
+    const name = document.getElementById('contactName').value.trim();
+    const phone = document.getElementById('contactPhone').value.trim();
+
+    if (!name) { showToast('Введите имя', 'error'); return; }
+    if (!phone || phone.length < 10) { showToast('Введите номер', 'error'); return; }
+
+    const user = await api.findUserByPhone(phone);
+    if (!user) { showToast('Пользователь не найден', 'error'); return; }
+    if (user.id === currentUser.id) { showToast('Нельзя добавить себя', 'error'); return; }
+
+    const result = await api.addContact(currentUser.id, user.id);
+    showToast(`✅ Контакт ${user.name} добавлен!`, 'success');
+    closeModal();
+    loadChats();
+    openChat(result.chat.id);
+}
+
+async function openChatWithUser(userId) {
+    const result = await api.addContact(currentUser.id, userId);
+    if (result.chat) {
+        loadChats();
+        openChat(result.chat.id);
+    }
+}
+
+// ===== ПОИСК =====
+
+document.getElementById('searchInput').addEventListener('input', function(e) {
+    const query = this.value.trim();
+    if (query.length > 1) {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => searchUsers(query), 300);
+    } else {
+        renderChats();
+    }
+});
+
+async function searchUsers(query) {
+    if (!currentUser) return;
+    const results = await api.searchUsers(query, currentUser.id);
+    const list = document.getElementById('chatList');
+    if (!list) return;
+    list.innerHTML = '';
+    
+    if (results.length === 0) {
+        list.innerHTML = `<div style="padding:20px;text-align:center;color:#6a6a6a;">Пользователи не найдены</div>`;
+        return;
+    }
+    
+    results.forEach(user => {
+        const item = document.createElement('div');
+        item.className = 'chat-item';
+        item.innerHTML = `
+            <div class="chat-avatar">
+                ${user.avatar ? `<img src="${user.avatar}" onerror="this.style.display='none'">` : user.name.charAt(0).toUpperCase()}
+                ${user.online ? '<div class="online-dot"></div>' : ''}
+            </div>
+            <div class="chat-info">
+                <div class="name">${user.name}</div>
+                <div class="last-msg">@${user.username || 'username'}</div>
+            </div>
+        `;
+        item.addEventListener('click', () => {
+            document.getElementById('searchInput').value = '';
+            renderChats();
+            openChatWithUser(user.id);
+        });
+        list.appendChild(item);
+    });
+}
+
+// ===== НАСТРОЙКИ ЧАТА =====
+
+function openChatSettings() {
+    document.getElementById('chatSettingsModal').classList.add('show');
+}
+
+function closeChatSettings() {
+    document.getElementById('chatSettingsModal').classList.remove('show');
+}
+
+function setWallpaper() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        try {
+            const reader = new FileReader();
+            reader.onload = async function(event) {
+                const wallpaper = event.target.result;
+                const result = await api.setChatWallpaper(currentChatId, wallpaper);
+                if (result.success) {
+                    showToast('🖼️ Обои обновлены!', 'success');
+                    document.getElementById('messagesArea').style.backgroundImage = `url(${wallpaper})`;
+                    document.getElementById('messagesArea').style.backgroundSize = 'cover';
+                    document.getElementById('messagesArea').style.backgroundPosition = 'center';
+                }
+            };
+            reader.readAsDataURL(file);
+        } catch (error) {
+            showToast('❌ Ошибка установки обоев', 'error');
+        }
+    };
+    input.click();
+}
+
+async function muteChat() {
+    const options = ['На 1 час', 'На 8 часов', 'На 1 день', 'Навсегда', 'Отключить'];
+    const choice = prompt('Выберите время:\n1 - 1 час\n2 - 8 часов\n3 - 1 день\n4 - Навсегда\n5 - Отключить');
+    
+    if (!choice) return;
+    
+    let until = null;
+    const now = new Date();
+    switch(choice) {
+        case '1': until = new Date(now.getTime() + 60*60*1000).toISOString(); break;
+        case '2': until = new Date(now.getTime() + 8*60*60*1000).toISOString(); break;
+        case '3': until = new Date(now.getTime() + 24*60*60*1000).toISOString(); break;
+        case '4': until = '2999-12-31T23:59:59.999Z'; break;
+        case '5': until = null; break;
+        default: return;
+    }
+    
+    const result = await api.muteChat(currentChatId, currentUser.id, until);
+    if (result.success) {
+        showToast(until ? '🔇 Уведомления отключены' : '🔔 Уведомления включены', 'success');
+        renderChats();
+    }
+}
+
+async function leaveChat() {
+    if (!confirm('Вы уверены, что хотите покинуть чат?')) return;
+    
+    const result = await api.leaveChat(currentChatId, currentUser.id);
+    if (result.success) {
+        showToast('👋 Вы покинули чат', 'info');
+        closeChatSettings();
+        currentChatId = null;
+        loadChats();
+        document.getElementById('messagesArea').innerHTML = `
+            <div class="empty-chat">
+                <p>Выберите чат</p>
+                <span>Начните общение</span>
+            </div>
+        `;
+        document.getElementById('messageInput').disabled = true;
+        document.getElementById('sendBtn').disabled = true;
+    }
+}
+
+function setAutoDelete() {
+    const seconds = prompt('Время автоудаления в секундах (0 - отключить):', '0');
+    if (seconds !== null) {
+        showToast('⏰ Автоудаление установлено на ' + seconds + ' сек', 'success');
+    }
+}
+
+// ===== ФАЙЛЫ =====
+
+async function uploadFiles(files) {
+    if (!files || files.length === 0 || !currentChatId) {
+        showToast('Выберите чат', 'error');
+        return;
+    }
+    
+    for (const file of files) {
+        try {
+            showToast(`⏳ Загрузка ${file.name}...`, 'info');
+            const result = await api.uploadFile(file);
+            if (result.success && socket) {
+                socket.emit('sendMessage', {
+                    chatId: currentChatId,
+                    senderId: currentUser.id,
+                    text: '',
+                    file: result.file
+                });
+                showToast(`✅ ${file.name} отправлен!`, 'success');
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            showToast(`❌ Ошибка ${file.name}`, 'error');
+        }
+    }
 }
 
 // ===== ГОЛОСОВЫЕ =====
@@ -1252,354 +1670,6 @@ function startVideoCall() {
     if (socket) {
         socket.emit('callStart', { from: currentUser.id, to: currentChatUser, type: 'video' });
         showToast('📹 Видеозвонок...', 'info');
-    }
-}
-
-// ===== ПРОСМОТР ПРОФИЛЯ =====
-
-let profileUserId = null;
-
-async function openUserProfile() {
-    if (!currentChatUser) {
-        showToast('Пользователь не выбран', 'error');
-        return;
-    }
-    profileUserId = currentChatUser;
-    await loadUserProfile(currentChatUser);
-}
-
-async function loadUserProfile(userId) {
-    try {
-        const user = await api.getUserProfile(userId);
-        if (!user) {
-            showToast('Пользователь не найден', 'error');
-            return;
-        }
-        
-        document.getElementById('profileViewName').textContent = user.name;
-        document.getElementById('profileViewUsername').textContent = '@' + (user.username || 'username');
-        document.getElementById('profileViewBio').textContent = user.bio || 'О себе не указано';
-        document.getElementById('profileViewPhone').textContent = user.phone;
-        document.getElementById('profileViewStatus').textContent = user.online ? '🟢 онлайн' : '⚫ офлайн';
-        document.getElementById('profileViewJoined').textContent = 'В сети с ' + new Date(user.created_at).toLocaleDateString('ru-RU');
-        
-        const avatarText = document.getElementById('profileViewAvatarText');
-        const avatarImg = document.getElementById('profileViewAvatar');
-        
-        if (user.avatar && user.avatar.startsWith('http')) {
-            avatarImg.src = user.avatar;
-            avatarImg.style.display = 'block';
-            avatarText.style.display = 'none';
-        } else {
-            avatarText.textContent = user.name.charAt(0).toUpperCase();
-            avatarText.style.display = 'flex';
-            avatarImg.style.display = 'none';
-        }
-        
-        const blockBtn = document.getElementById('blockBtn');
-        blockBtn.innerHTML = '<i class="fas fa-ban"></i> Заблокировать';
-        blockBtn.onclick = () => blockUser();
-        
-        document.getElementById('userProfileModal').classList.add('show');
-    } catch (error) {
-        console.error('Ошибка загрузки профиля:', error);
-        showToast('Ошибка загрузки профиля', 'error');
-    }
-}
-
-function closeUserProfile() {
-    document.getElementById('userProfileModal').classList.remove('show');
-}
-
-function sendMessageToProfile() {
-    closeUserProfile();
-    if (profileUserId) {
-        openChatWithUser(profileUserId);
-    }
-}
-
-async function blockUser() {
-    if (!currentUser || !profileUserId) return;
-    const result = await api.blockUser(currentUser.id, profileUserId);
-    if (result.success) {
-        showToast('🚫 Пользователь заблокирован', 'success');
-        closeUserProfile();
-    }
-}
-
-// ===== СОЗДАНИЕ ЧАТА =====
-
-function showCreateChat(type) {
-    createChatType = type;
-    selectedMembers = [];
-    document.getElementById('createChatTitle').textContent = type === 'channel' ? '📢 Создать канал' : '👥 Создать группу';
-    document.getElementById('chatNameInput').value = '';
-    document.getElementById('chatUsernameInput').value = '';
-    document.getElementById('chatDescriptionInput').value = '';
-    document.getElementById('memberSearchInput').value = '';
-    document.getElementById('membersList').innerHTML = '';
-    document.getElementById('addMembersArea').style.display = type === 'channel' ? 'none' : 'block';
-    document.getElementById('createChatModal').classList.add('show');
-}
-
-function closeCreateChat() {
-    document.getElementById('createChatModal').classList.remove('show');
-}
-
-async function addMemberByUsername() {
-    const username = document.getElementById('memberSearchInput').value.trim();
-    if (!username) { showToast('Введите username', 'error'); return; }
-    
-    const results = await api.searchUsers(username, currentUser.id);
-    const user = results.find(u => u.username === username);
-    if (!user) { showToast('Пользователь не найден', 'error'); return; }
-    if (selectedMembers.includes(user.id)) { showToast('Уже добавлен', 'info'); return; }
-    
-    selectedMembers.push(user.id);
-    document.getElementById('memberSearchInput').value = '';
-    renderMembersList();
-}
-
-function renderMembersList() {
-    const container = document.getElementById('membersList');
-    if (!container) return;
-    container.innerHTML = selectedMembers.map(id => {
-        return `<span class="member-tag">Участник <span class="remove-member" onclick="selectedMembers=selectedMembers.filter(i=>i!=='${id}');renderMembersList();">&times;</span></span>`;
-    }).join('');
-}
-
-async function createChat() {
-    const name = document.getElementById('chatNameInput').value.trim();
-    const username = document.getElementById('chatUsernameInput').value.trim();
-    const description = document.getElementById('chatDescriptionInput').value.trim();
-    if (!name) { showToast('Введите название', 'error'); return; }
-    
-    const data = {
-        name,
-        type: createChatType,
-        createdBy: currentUser.id,
-        description: description || null,
-        participants: createChatType === 'channel' ? [] : selectedMembers
-    };
-    
-    if (username && createChatType === 'channel') {
-        data.username = username;
-    }
-    
-    const result = await api.createChat(data);
-    
-    if (result.error) {
-        showToast(result.error, 'error');
-        return;
-    }
-    
-    showToast(`✅ ${createChatType === 'channel' ? 'Канал' : 'Группа'} создана!`, 'success');
-    closeCreateChat();
-    loadChats();
-    openChat(result.chat.id);
-}
-
-// ===== КОНТАКТЫ =====
-
-function showAddContact() {
-    document.getElementById('addContactModal').classList.add('show');
-    document.getElementById('contactName').value = '';
-    document.getElementById('contactPhone').value = '+7';
-}
-
-function closeModal() {
-    document.getElementById('addContactModal').classList.remove('show');
-}
-
-async function addContact() {
-    const name = document.getElementById('contactName').value.trim();
-    const phone = document.getElementById('contactPhone').value.trim();
-
-    if (!name) { showToast('Введите имя', 'error'); return; }
-    if (!phone || phone.length < 10) { showToast('Введите номер', 'error'); return; }
-
-    const user = await api.findUserByPhone(phone);
-    if (!user) { showToast('Пользователь не найден', 'error'); return; }
-    if (user.id === currentUser.id) { showToast('Нельзя добавить себя', 'error'); return; }
-
-    const result = await api.addContact(currentUser.id, user.id);
-    showToast(`✅ Контакт ${user.name} добавлен!`, 'success');
-    closeModal();
-    loadChats();
-    openChat(result.chat.id);
-}
-
-async function openChatWithUser(userId) {
-    const result = await api.addContact(currentUser.id, userId);
-    if (result.chat) {
-        loadChats();
-        openChat(result.chat.id);
-    }
-}
-
-// ===== ПОИСК =====
-
-document.getElementById('searchInput').addEventListener('input', function(e) {
-    const query = this.value.trim();
-    if (query.length > 1) {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => searchUsers(query), 300);
-    } else {
-        renderChats();
-    }
-});
-
-async function searchUsers(query) {
-    if (!currentUser) return;
-    const results = await api.searchUsers(query, currentUser.id);
-    const list = document.getElementById('chatList');
-    if (!list) return;
-    list.innerHTML = '';
-    
-    if (results.length === 0) {
-        list.innerHTML = `<div style="padding:20px;text-align:center;color:#6a6a6a;">Пользователи не найдены</div>`;
-        return;
-    }
-    
-    results.forEach(user => {
-        const item = document.createElement('div');
-        item.className = 'chat-item';
-        item.innerHTML = `
-            <div class="chat-avatar">
-                ${user.avatar ? `<img src="${user.avatar}" onerror="this.style.display='none'">` : user.name.charAt(0).toUpperCase()}
-                ${user.online ? '<div class="online-dot"></div>' : ''}
-            </div>
-            <div class="chat-info">
-                <div class="name">${user.name}</div>
-                <div class="last-msg">@${user.username || 'username'}</div>
-            </div>
-        `;
-        item.addEventListener('click', () => {
-            document.getElementById('searchInput').value = '';
-            renderChats();
-            openChatWithUser(user.id);
-        });
-        list.appendChild(item);
-    });
-}
-
-// ===== НАСТРОЙКИ ЧАТА =====
-
-function openChatSettings() {
-    document.getElementById('chatSettingsModal').classList.add('show');
-}
-
-function closeChatSettings() {
-    document.getElementById('chatSettingsModal').classList.remove('show');
-}
-
-// ===== ОБОИ ЧАТА =====
-function setWallpaper() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = async function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        try {
-            const reader = new FileReader();
-            reader.onload = async function(event) {
-                const wallpaper = event.target.result;
-                const result = await api.setChatWallpaper(currentChatId, wallpaper);
-                if (result.success) {
-                    showToast('🖼️ Обои обновлены!', 'success');
-                    document.getElementById('messagesArea').style.backgroundImage = `url(${wallpaper})`;
-                    document.getElementById('messagesArea').style.backgroundSize = 'cover';
-                    document.getElementById('messagesArea').style.backgroundPosition = 'center';
-                }
-            };
-            reader.readAsDataURL(file);
-        } catch (error) {
-            showToast('❌ Ошибка установки обоев', 'error');
-        }
-    };
-    input.click();
-}
-
-// ===== ОТКЛЮЧЕНИЕ УВЕДОМЛЕНИЙ =====
-async function muteChat() {
-    const options = ['На 1 час', 'На 8 часов', 'На 1 день', 'Навсегда', 'Отключить'];
-    const choice = prompt('Выберите время:\n1 - 1 час\n2 - 8 часов\n3 - 1 день\n4 - Навсегда\n5 - Отключить');
-    
-    if (!choice) return;
-    
-    let until = null;
-    const now = new Date();
-    switch(choice) {
-        case '1': until = new Date(now.getTime() + 60*60*1000).toISOString(); break;
-        case '2': until = new Date(now.getTime() + 8*60*60*1000).toISOString(); break;
-        case '3': until = new Date(now.getTime() + 24*60*60*1000).toISOString(); break;
-        case '4': until = '2999-12-31T23:59:59.999Z'; break;
-        case '5': until = null; break;
-        default: return;
-    }
-    
-    const result = await api.muteChat(currentChatId, currentUser.id, until);
-    if (result.success) {
-        showToast(until ? '🔇 Уведомления отключены' : '🔔 Уведомления включены', 'success');
-        renderChats();
-    }
-}
-
-// ===== ВЫХОД ИЗ ЧАТА =====
-async function leaveChat() {
-    if (!confirm('Вы уверены, что хотите покинуть чат?')) return;
-    
-    const result = await api.leaveChat(currentChatId, currentUser.id);
-    if (result.success) {
-        showToast('👋 Вы покинули чат', 'info');
-        closeChatSettings();
-        currentChatId = null;
-        loadChats();
-        document.getElementById('messagesArea').innerHTML = `
-            <div class="empty-chat">
-                <p>Выберите чат</p>
-                <span>Начните общение</span>
-            </div>
-        `;
-        document.getElementById('messageInput').disabled = true;
-        document.getElementById('sendBtn').disabled = true;
-    }
-}
-
-function setAutoDelete() {
-    const seconds = prompt('Время автоудаления в секундах (0 - отключить):', '0');
-    if (seconds !== null) {
-        showToast('⏰ Автоудаление установлено на ' + seconds + ' сек', 'success');
-    }
-}
-
-// ===== ФАЙЛЫ =====
-
-async function uploadFiles(files) {
-    if (!files || files.length === 0 || !currentChatId) {
-        showToast('Выберите чат', 'error');
-        return;
-    }
-    
-    for (const file of files) {
-        try {
-            showToast(`⏳ Загрузка ${file.name}...`, 'info');
-            const result = await api.uploadFile(file);
-            if (result.success && socket) {
-                socket.emit('sendMessage', {
-                    chatId: currentChatId,
-                    senderId: currentUser.id,
-                    text: '',
-                    file: result.file
-                });
-                showToast(`✅ ${file.name} отправлен!`, 'success');
-            }
-        } catch (error) {
-            console.error('Upload error:', error);
-            showToast(`❌ Ошибка ${file.name}`, 'error');
-        }
     }
 }
 

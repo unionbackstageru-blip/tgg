@@ -99,6 +99,7 @@
                 <div style="display:flex;gap:4px;">
                     <button class="header-btn" onclick="openSettings()"><i class="fas fa-cog"></i></button>
                     <button class="header-btn" onclick="showCreateChat('group')"><i class="fas fa-users"></i></button>
+                    <button class="header-btn" onclick="showCreateChat('channel')"><i class="fas fa-broadcast"></i></button>
                 </div>
             </div>
             
@@ -142,15 +143,6 @@
                 </div>
             </div>
 
-            <!-- Закрепленное сообщение -->
-            <div id="pinnedMessage" class="pinned-message" style="display:none;">
-                <div class="pinned-content">
-                    <i class="fas fa-thumbtack"></i>
-                    <span id="pinnedText">Закрепленное сообщение</span>
-                </div>
-                <button onclick="unpinMessage()"><i class="fas fa-times"></i></button>
-            </div>
-
             <div class="messages-area" id="messagesArea">
                 <div class="empty-chat">
                     <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
@@ -163,9 +155,7 @@
                 </div>
             </div>
 
-            <!-- Инпут -->
             <div class="chat-input-container">
-                <!-- Ответ на сообщение -->
                 <div id="replyBar" class="reply-bar" style="display:none;">
                     <div class="reply-content">
                         <span>↩️ Ответ</span>
@@ -180,14 +170,13 @@
                     <label class="input-btn" for="fileInput"><i class="fas fa-paperclip"></i></label>
                     <input type="file" id="fileInput" multiple style="display:none;">
                     <input type="text" id="messageInput" placeholder="Сообщение..." disabled>
-                    <button id="sendBtn" disabled><i class="fas fa-paper-plane"></i></button>
+                    <button id="sendBtn" disabled class="send-btn"><i class="fas fa-paper-plane"></i></button>
                 </div>
                 
                 <div id="emojiPanel" class="emoji-panel" style="display:none;">
                     <div class="emoji-grid" id="emojiGrid"></div>
                 </div>
                 
-                <!-- Запись голосового -->
                 <div id="voiceRecording" class="voice-recording" style="display:none;">
                     <div class="voice-recording-content">
                         <div class="voice-wave"></div>
@@ -288,6 +277,10 @@
                     <i class="fas fa-info-circle" style="margin-top:12px;"></i>
                     <textarea id="chatDescriptionInput" placeholder="Описание..." rows="3"></textarea>
                 </div>
+                <div class="input-group">
+                    <i class="fas fa-image"></i>
+                    <input type="text" id="chatAvatarInput" placeholder="URL аватарки (опционально)">
+                </div>
                 <div id="addMembersArea">
                     <p style="color:#6a6a6a;font-size:14px;margin-bottom:10px;">Добавьте участников</p>
                     <div style="display:flex;gap:8px;">
@@ -313,10 +306,6 @@
                     <i class="fas fa-image"></i>
                     <span>Обои чата</span>
                 </div>
-                <div class="settings-item" onclick="setAutoDelete()">
-                    <i class="fas fa-clock"></i>
-                    <span>Автоудаление</span>
-                </div>
                 <div class="settings-item" onclick="muteChat()">
                     <i class="fas fa-bell-slash"></i>
                     <span>Отключить уведомления</span>
@@ -325,6 +314,64 @@
                     <i class="fas fa-sign-out-alt"></i>
                     <span>Покинуть чат</span>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== НОВЫЕ МОДАЛЬНЫЕ ОКНА ===== -->
+    
+    <!-- Удаление сообщения -->
+    <div id="deleteMessageModal" class="modal">
+        <div class="modal-content" style="max-width:400px;">
+            <div class="modal-header">
+                <h2>Удалить сообщение</h2>
+                <span class="close" onclick="closeDeleteModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="color:#888;margin-bottom:16px;">Выберите вариант удаления:</p>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px;background:#2b2b2b;border-radius:8px;margin-bottom:8px;cursor:pointer;">
+                    <input type="checkbox" id="deleteForEveryone" checked>
+                    <span style="color:#e0e0e0;">Удалить у всех</span>
+                </label>
+                <p style="color:#6a6a6a;font-size:13px;margin-left:32px;margin-bottom:16px;">Сообщение удалится у всех участников чата</p>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="confirmDeleteMessage()" class="auth-btn" style="flex:1;background:#e74c3c;">Удалить</button>
+                    <button onclick="closeDeleteModal()" class="auth-btn" style="flex:1;background:#2b2b2b;">Отмена</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Редактирование сообщения -->
+    <div id="editMessageModal" class="modal">
+        <div class="modal-content" style="max-width:400px;">
+            <div class="modal-header">
+                <h2>Редактировать сообщение</h2>
+                <span class="close" onclick="closeEditModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <i class="fas fa-edit"></i>
+                    <input type="text" id="editMessageInput" placeholder="Новый текст...">
+                </div>
+                <div style="display:flex;gap:8px;margin-top:10px;">
+                    <button onclick="confirmEditMessage()" class="auth-btn" style="flex:1;">Сохранить</button>
+                    <button onclick="closeEditModal()" class="auth-btn" style="flex:1;background:#2b2b2b;">Отмена</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Пересылка сообщения -->
+    <div id="forwardMessageModal" class="modal">
+        <div class="modal-content" style="max-width:400px;">
+            <div class="modal-header">
+                <h2>Переслать сообщение</h2>
+                <span class="close" onclick="closeForwardModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="color:#888;margin-bottom:12px;">Выберите чат для пересылки:</p>
+                <div id="forwardChatList" style="max-height:300px;overflow-y:auto;"></div>
             </div>
         </div>
     </div>

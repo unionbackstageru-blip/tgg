@@ -50,6 +50,11 @@ body {
     margin-bottom: 12px;
 }
 
+.auth-logo .logo-icon svg {
+    width: 60px;
+    height: 60px;
+}
+
 .auth-logo h1 {
     color: #e0e0e0;
     font-size: 32px;
@@ -123,6 +128,11 @@ body {
 
 .auth-btn:hover {
     background: #5a9bd6;
+}
+
+.auth-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .auth-switch {
@@ -208,6 +218,11 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.left-header .brand svg {
+    width: 28px;
+    height: 28px;
 }
 
 .left-header .brand span {
@@ -343,6 +358,7 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
 }
 
 .chat-info .name .badge {
@@ -395,6 +411,7 @@ body {
     align-items: center;
     gap: 12px;
     background: #1a1a1a;
+    flex-shrink: 0;
 }
 
 .profile-avatar {
@@ -461,6 +478,7 @@ body {
     flex-direction: column;
     background: #1a1a1a;
     height: 100%;
+    min-width: 0;
 }
 
 /* ===== ШАПКА ЧАТА ===== */
@@ -539,6 +557,9 @@ body {
     color: #e0e0e0;
     font-size: 16px;
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .chat-info-header span {
@@ -549,6 +570,7 @@ body {
 .chat-actions {
     display: flex;
     gap: 4px;
+    flex-shrink: 0;
 }
 
 .chat-actions button {
@@ -576,6 +598,7 @@ body {
     flex-direction: column;
     gap: 4px;
     background: #1a1a1a;
+    min-height: 0;
 }
 
 .messages-area::-webkit-scrollbar {
@@ -885,6 +908,18 @@ body {
     border-radius: 4px;
     position: relative;
     overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 2px;
+}
+
+.voice-message .voice-waveform .wave-bar {
+    flex: 1;
+    background: #6ab2f2;
+    border-radius: 2px;
+    min-height: 3px;
+    opacity: 0.6;
 }
 
 .voice-message .voice-duration-text {
@@ -939,35 +974,37 @@ body {
     padding: 8px 0;
     color: #e0e0e0;
     font-size: 15px;
+    min-width: 50px;
 }
 
 .chat-input-wrapper input::placeholder {
     color: #6a6a6a;
 }
 
-.chat-input-wrapper button[type="button"] {
-    background: #6ab2f2;
+/* ===== ИКОНКА ОТПРАВКИ (ПРОЗРАЧНЫЙ ФОН) ===== */
+.chat-input-wrapper .send-btn {
+    background: transparent;
     border: none;
-    color: #fff;
+    color: #6ab2f2;
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    font-size: 16px;
+    font-size: 18px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
 }
 
-.chat-input-wrapper button[type="button"]:hover:not(:disabled) {
-    background: #5a9bd6;
+.chat-input-wrapper .send-btn:hover:not(:disabled) {
+    background: rgba(106, 178, 242, 0.15);
+    transform: scale(1.05);
 }
 
-.chat-input-wrapper button[type="button"]:disabled,
-.chat-input-wrapper input:disabled {
-    opacity: 0.4;
+.chat-input-wrapper .send-btn:disabled {
+    opacity: 0.3;
     cursor: not-allowed;
 }
 
@@ -1116,6 +1153,47 @@ body {
     color: #e0e0e0;
 }
 
+/* ===== ЗАКРЕПЛЕННОЕ ===== */
+.pinned-message {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    background: #2a2a2a;
+    border-bottom: 1px solid #2b2b2b;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.pinned-message .pinned-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #6ab2f2;
+    font-size: 13px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.pinned-message .pinned-content span {
+    color: #888;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pinned-message button {
+    background: transparent;
+    border: none;
+    color: #6a6a6a;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.pinned-message button:hover {
+    color: #e0e0e0;
+}
+
 /* ===== МОДАЛЬНЫЕ ОКНА ===== */
 .modal {
     display: none;
@@ -1235,6 +1313,7 @@ body {
     display: flex;
     gap: 8px;
     margin: 10px 0;
+    flex-wrap: wrap;
 }
 
 .theme-btn {
@@ -1407,45 +1486,51 @@ body {
     color: #e74c3c;
 }
 
-/* ===== ЗАКРЕПЛЕННОЕ ===== */
-.pinned-message {
-    display: none;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 16px;
-    background: #2a2a2a;
-    border-bottom: 1px solid #2b2b2b;
-    cursor: pointer;
-    flex-shrink: 0;
+/* ===== ДИАЛОГИ ===== */
+#deleteMessageModal .modal-content,
+#editMessageModal .modal-content,
+#forwardMessageModal .modal-content {
+    background: #1e1e1e;
 }
 
-.pinned-message .pinned-content {
+#deleteMessageModal label {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: #6ab2f2;
-    font-size: 13px;
-    flex: 1;
-    overflow: hidden;
-}
-
-.pinned-message .pinned-content span {
-    color: #888;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.pinned-message button {
-    background: transparent;
-    border: none;
-    color: #6a6a6a;
+    gap: 10px;
+    padding: 10px;
+    background: #2b2b2b;
+    border-radius: 8px;
+    margin-bottom: 8px;
     cursor: pointer;
-    padding: 4px 8px;
+    transition: background 0.2s;
 }
 
-.pinned-message button:hover {
+#deleteMessageModal label:hover {
+    background: #3a3a3a;
+}
+
+#deleteMessageModal label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+#deleteMessageModal label span {
     color: #e0e0e0;
+}
+
+#forwardChatList {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+#forwardChatList .chat-item {
+    padding: 8px 12px;
+    border-radius: 8px;
+}
+
+#forwardChatList .chat-item:hover {
+    background: #2a2a2a;
 }
 
 /* ===== УВЕДОМЛЕНИЯ ===== */
@@ -1557,5 +1642,10 @@ body {
     .emoji-item {
         font-size: 22px;
         padding: 3px;
+    }
+    
+    .modal-content {
+        width: 95%;
+        max-width: 95%;
     }
 }
