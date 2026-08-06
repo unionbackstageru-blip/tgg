@@ -17,7 +17,6 @@ const db = new sqlite3.Database(dbPath);
 
 // ===== СОЗДАЁМ ТАБЛИЦЫ =====
 db.serialize(() => {
-    // Пользователи
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -33,7 +32,6 @@ db.serialize(() => {
         )
     `);
 
-    // Коды
     db.run(`
         CREATE TABLE IF NOT EXISTS verifications (
             phone TEXT PRIMARY KEY,
@@ -42,7 +40,6 @@ db.serialize(() => {
         )
     `);
 
-    // Чаты
     db.run(`
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
@@ -57,7 +54,6 @@ db.serialize(() => {
         )
     `);
 
-    // Участники
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
@@ -68,7 +64,6 @@ db.serialize(() => {
         )
     `);
 
-    // Сообщения
     db.run(`
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -76,12 +71,13 @@ db.serialize(() => {
             sender_id TEXT NOT NULL,
             text TEXT,
             file TEXT,
+            status TEXT DEFAULT 'sent',
             read INTEGER DEFAULT 0,
+            read_at TEXT,
             created_at TEXT
         )
     `);
 
-    // Непрочитанные
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
@@ -90,7 +86,6 @@ db.serialize(() => {
         )
     `);
 
-    // Подписчики
     db.run(`
         CREATE TABLE IF NOT EXISTS channel_subscribers (
             channel_id TEXT,
@@ -216,20 +211,21 @@ class Database {
         );
         
         for (const chat of chats) {
-            // Получаем имена участников
             const participants = await this.getChatParticipants(chat.id);
             chat.participants = participants;
             chat.unread = await this.getUnreadCount(chat.id, userId);
             
-            // Для приватных чатов добавляем имя собеседника
             if (chat.type === 'private') {
                 const otherUser = participants.find(p => p.user_id !== userId);
                 if (otherUser) {
                     const user = await this.getUserById(otherUser.user_id);
                     chat.displayName = user ? user.name : 'Неизвестный';
+                    chat.avatar = user ? user.avatar : null;
+                    chat.userId = user ? user.id : null;
                 }
             } else {
                 chat.displayName = chat.name || 'Чат';
+                chat.avatar = chat.avatar || null;
             }
         }
         return chats;
@@ -297,10 +293,10 @@ class Database {
 
     async createMessage(message) {
         await runQuery(
-            `INSERT INTO messages (id, chat_id, sender_id, text, file, read, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (id, chat_id, sender_id, text, file, status, read, read_at, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [message.id, message.chat_id, message.sender_id, message.text, 
-             message.file ? JSON.stringify(message.file) : null, 0, message.created_at]
+             message.file ? JSON.stringify(message.file) : null, 'sent', 0, null, message.created_at]
         );
         
         const participants = await this.getChatParticipants(message.chat_id);
@@ -321,12 +317,32 @@ class Database {
         return message;
     }
 
-    async markAllChatMessagesAsRead(chatId, userId) {
+    async markMessageAsDelivered(messageId) {
         await runQuery(
-            `DELETE FROM unread_messages WHERE message_id IN 
-             (SELECT id FROM messages WHERE chat_id = ?) AND user_id = ?`,
+            `UPDATE messages SET status = 'delivered' WHERE id = ? AND status = 'sent'`,
+            [messageId]
+        );
+    }
+
+    async markMessageAsRead(messageId, userId) {
+        await runQuery(
+            `UPDATE messages SET status = 'read', read = 1, read_at = ? WHERE id = ?`,
+            [new Date().toISOString(), messageId]
+        );
+        await runQuery(
+            `DELETE FROM unread_messages WHERE message_id = ? AND user_id = ?`,
+            [messageId, userId]
+        );
+    }
+
+    async markAllChatMessagesAsRead(chatId, userId) {
+        const messages = await allQuery(
+            `SELECT id FROM messages WHERE chat_id = ? AND sender_id != ? AND read = 0`,
             [chatId, userId]
         );
+        for (const msg of messages) {
+            await this.markMessageAsRead(msg.id, userId);
+        }
     }
 
     async getUnreadCount(chatId, userId) {
@@ -337,6 +353,15 @@ class Database {
             [chatId, userId]
         );
         return result ? result.count : 0;
+    }
+
+    // ---------- КАНАЛЫ ----------
+    async subscribeToChannel(channelId, userId) {
+        await runQuery(
+            `INSERT OR REPLACE INTO channel_subscribers (channel_id, user_id, subscribed_at) VALUES (?, ?, ?)`,
+            [channelId, userId, new Date().toISOString()]
+        );
+        await this.addParticipant(channelId, userId);
     }
 }
 

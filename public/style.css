@@ -922,3 +922,62 @@ body {
     font-weight: 600;
     font-size: 18px;
 }
+/* ===== СТАТУСЫ СООБЩЕНИЙ ===== */
+.message-status {
+    font-size: 12px;
+    margin-left: 4px;
+    display: inline-block;
+}
+
+.message-status.sent {
+    color: #888;
+}
+
+.message-status.delivered {
+    color: #6ab2f2;
+}
+
+.message-status.read {
+    color: #4caf50;
+}
+
+.message-status i {
+    font-size: 12px;
+}
+
+/* ===== АВАТАРКА В ШАПКЕ ЧАТА ===== */
+.chat-avatar-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.chat-avatar-header img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.chat-avatar-header span {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #3a3a3a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 18px;
+    color: #fff;
+}
+
+/* ===== АВАТАРКА В СПИСКЕ ЧАТОВ ===== */
+.chat-avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+}

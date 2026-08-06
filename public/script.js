@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon Social Network - Клиент
+   TeleFon Social Network - Клиент (полная версия)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -10,6 +10,7 @@ let allChats = [];
 let selectedMembers = [];
 let createChatType = 'group';
 let searchTimeout = null;
+let currentChatUser = null;
 
 // ===== ЭМОДЗИ =====
 const EMOJIS = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','☺️','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✌️','🤟','🤘','👌','🤞','🤙','💪','🦾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💯','💢','💥','🔥'];
@@ -89,6 +90,10 @@ const api = {
         if (res.status === 404) return null;
         return res.json();
     },
+    async getUserProfile(userId) {
+        const res = await fetch(`${API_URL}/api/users/${userId}`);
+        return res.json();
+    },
     async markAsRead(chatId, userId) {
         await fetch(`${API_URL}/api/messages/read`, {
             method: 'POST',
@@ -152,8 +157,20 @@ function connectSocket(userId) {
         if (data.chatId === currentChatId) {
             renderMessages(currentChatId);
             api.markAsRead(currentChatId, currentUser.id);
+            // Отмечаем как прочитанное через сокет
+            if (socket) {
+                socket.emit('messageRead', { messageId: data.message.id, userId: currentUser.id });
+            }
         }
         renderChats();
+    });
+    
+    socket.on('messageStatus', (data) => {
+        console.log('📨 Статус сообщения:', data);
+        // Обновляем статус сообщения в интерфейсе
+        if (currentChatId) {
+            renderMessages(currentChatId);
+        }
     });
     
     socket.on('chatsUpdate', (chats) => {
@@ -504,6 +521,7 @@ function renderChats() {
 
     allChats.forEach(chat => {
         const name = chat.displayName || chat.name || 'Чат';
+        const avatar = chat.avatar || null;
         const lastMsg = chat.last_message || 'Нет сообщений';
         const time = formatTime(chat.last_message_time);
         const unread = chat.unread || 0;
@@ -517,7 +535,7 @@ function renderChats() {
         item.className = `chat-item ${chat.id === currentChatId ? 'active' : ''}`;
         item.innerHTML = `
             <div class="chat-avatar c${Math.floor(Math.random() * 7) + 1}">
-                ${name.charAt(0).toUpperCase()}
+                ${avatar ? `<img src="${avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : name.charAt(0).toUpperCase()}
             </div>
             <div class="chat-info">
                 <div class="name">
@@ -548,6 +566,51 @@ function formatTime(date) {
     return d.toLocaleDateString();
 }
 
+// ===== ПРОСМОТР ПРОФИЛЯ =====
+
+async function openUserProfile() {
+    if (!currentChatUser) {
+        showToast('Пользователь не выбран', 'error');
+        return;
+    }
+    
+    try {
+        const user = await api.getUserProfile(currentChatUser);
+        if (!user) {
+            showToast('Пользователь не найден', 'error');
+            return;
+        }
+        
+        document.getElementById('profileViewName').textContent = user.name;
+        document.getElementById('profileViewUsername').textContent = '@' + (user.username || 'username');
+        document.getElementById('profileViewBio').textContent = user.bio || 'О себе не указано';
+        document.getElementById('profileViewPhone').textContent = '📱 ' + user.phone;
+        document.getElementById('profileViewStatus').textContent = 'Статус: ' + (user.online ? '🟢 онлайн' : '⚫ офлайн');
+        
+        const avatarText = document.getElementById('profileViewAvatarText');
+        const avatarImg = document.getElementById('profileViewAvatar');
+        
+        if (user.avatar && user.avatar.startsWith('http')) {
+            avatarImg.src = user.avatar;
+            avatarImg.style.display = 'block';
+            avatarText.style.display = 'none';
+        } else {
+            avatarText.textContent = user.name.charAt(0).toUpperCase();
+            avatarText.style.display = 'block';
+            avatarImg.style.display = 'none';
+        }
+        
+        document.getElementById('userProfileModal').classList.add('show');
+    } catch (error) {
+        console.error('Ошибка загрузки профиля:', error);
+        showToast('Ошибка загрузки профиля', 'error');
+    }
+}
+
+function closeUserProfile() {
+    document.getElementById('userProfileModal').classList.remove('show');
+}
+
 // ===== ОТКРЫТИЕ ЧАТА =====
 
 async function openChat(chatId) {
@@ -559,8 +622,31 @@ async function openChat(chatId) {
     }
 
     const name = chat.displayName || chat.name || 'Чат';
+    const avatar = chat.avatar || null;
+    
+    // Сохраняем ID собеседника для просмотра профиля
+    if (chat.type === 'private' && chat.participants) {
+        const other = chat.participants.find(p => p.user_id !== currentUser.id);
+        currentChatUser = other ? other.user_id : null;
+    } else {
+        currentChatUser = null;
+    }
+    
     document.getElementById('chatName').textContent = name;
-    document.getElementById('chatAvatar').textContent = name.charAt(0).toUpperCase();
+    document.getElementById('chatStatus').textContent = chat.type === 'private' ? 'онлайн' : 'группа';
+    
+    // Обновляем аватар в шапке
+    const avatarText = document.getElementById('chatAvatarText');
+    const avatarImg = document.getElementById('chatAvatarImg');
+    if (avatar && avatar.startsWith('http')) {
+        avatarImg.src = avatar;
+        avatarImg.style.display = 'block';
+        avatarText.style.display = 'none';
+    } else {
+        avatarText.textContent = name.charAt(0).toUpperCase();
+        avatarText.style.display = 'flex';
+        avatarImg.style.display = 'none';
+    }
     
     await renderMessages(chatId);
     document.getElementById('messageInput').disabled = false;
@@ -609,7 +695,19 @@ async function renderMessages(chatId) {
             }
         }
         
-        div.innerHTML = `${content}<span class="time">${time}</span>`;
+        // Статус сообщения
+        let statusIcon = '';
+        if (isSent) {
+            if (msg.status === 'sent') {
+                statusIcon = `<span class="message-status sent"><i class="fas fa-check"></i></span>`;
+            } else if (msg.status === 'delivered') {
+                statusIcon = `<span class="message-status delivered"><i class="fas fa-check-double"></i></span>`;
+            } else if (msg.status === 'read') {
+                statusIcon = `<span class="message-status read"><i class="fas fa-check-double"></i></span>`;
+            }
+        }
+        
+        div.innerHTML = `${content}<span class="time">${time} ${statusIcon}</span>`;
         area.appendChild(div);
     });
 
@@ -937,3 +1035,4 @@ restoreSession().then(restored => {
 });
 
 console.log('✅ TeleFon Social Network готова!');
+console.log('📱 Добавлены: статусы сообщений, аватарки, просмотр профиля');

@@ -87,7 +87,7 @@
             <div class="left-header">
                 <div class="brand">
                     <i class="fas fa-phone-alt"></i>
-                    <span style="color:#e0e0e0;font-weight:600;font-size:18px;">TeleFon</span>
+                    <span>TeleFon</span>
                 </div>
                 <div class="search-box">
                     <i class="fas fa-search"></i>
@@ -128,8 +128,11 @@
         <div class="right-panel" id="rightPanel">
             <div class="chat-header">
                 <div class="mobile-back" id="mobileBack"><i class="fas fa-arrow-left"></i></div>
-                <div class="avatar" id="chatAvatar">Ч</div>
-                <div class="info">
+                <div class="chat-avatar-header" id="chatAvatarHeader" style="cursor:pointer;" onclick="openUserProfile()">
+                    <img id="chatAvatarImg" style="width:40px;height:40px;border-radius:50%;object-fit:cover;display:none;">
+                    <span id="chatAvatarText" style="width:40px;height:40px;border-radius:50%;background:#3a3a3a;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:18px;color:#fff;">Ч</span>
+                </div>
+                <div class="info" onclick="openUserProfile()" style="cursor:pointer;">
                     <h3 id="chatName">Выберите чат</h3>
                     <span id="chatStatus">онлайн</span>
                 </div>
@@ -197,6 +200,28 @@
                     <textarea id="settingsBio" placeholder="О себе..." rows="3" style="background:transparent;border:none;outline:none;color:#e0e0e0;font-size:15px;width:100%;resize:vertical;"></textarea>
                 </div>
                 <button onclick="saveSettings()" class="auth-btn">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ПРОСМОТР ПРОФИЛЯ -->
+    <div id="userProfileModal" class="modal">
+        <div class="modal-content" style="max-width:400px;">
+            <div class="modal-header">
+                <h2>Профиль</h2>
+                <span class="close" onclick="closeUserProfile()">&times;</span>
+            </div>
+            <div class="modal-body" style="text-align:center;">
+                <div style="width:120px;height:120px;border-radius:50%;margin:0 auto 20px;background:#3a3a3a;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:600;color:#fff;overflow:hidden;">
+                    <img id="profileViewAvatar" style="width:100%;height:100%;object-fit:cover;display:none;">
+                    <span id="profileViewAvatarText">U</span>
+                </div>
+                <h3 id="profileViewName" style="color:#e0e0e0;font-size:20px;">Имя</h3>
+                <p id="profileViewUsername" style="color:#6a6a6a;font-size:14px;">@username</p>
+                <p id="profileViewBio" style="color:#888;font-size:14px;margin-top:10px;">О себе</p>
+                <p id="profileViewPhone" style="color:#6a6a6a;font-size:13px;margin-top:10px;">📱 +7</p>
+                <p id="profileViewStatus" style="color:#6a6a6a;font-size:13px;margin-top:5px;">Статус: офлайн</p>
+                <button onclick="closeUserProfile()" class="auth-btn" style="margin-top:15px;">Закрыть</button>
             </div>
         </div>
     </div>
