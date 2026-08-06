@@ -6,7 +6,17 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 const db = require('./database');
-const multer = require('multer');
+
+console.log('🚀 Запуск сервера...');
+
+// ===== ПРОВЕРЯЕМ ПАПКИ =====
+const publicDir = path.join(__dirname, '..', 'public');
+const uploadDir = path.join(publicDir, 'uploads');
+
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    console.log('📁 Создана папка uploads');
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -17,68 +27,30 @@ const io = socketIo(server, {
     }
 });
 
+// ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(publicDir));
 
-// ===== ЗАГРУЗКА ФАЙЛОВ =====
-const uploadDir = path.join(__dirname, '..', 'public', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, uploadDir);
-    },
-    filename: function (req, file, cb) {
-        const unique = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, unique + '-' + file.originalname);
-    }
-});
-
-const upload = multer({ 
-    storage: storage,
-    limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB
-    }
-});
-
-app.post('/api/upload', upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'Файл не загружен' });
-        }
-        
-        const file = {
-            name: req.file.originalname,
-            url: '/uploads/' + req.file.filename,
-            size: req.file.size,
-            type: req.file.mimetype
-        };
-        
-        res.json({ success: true, file: file });
-    } catch (error) {
-        console.error('Upload error:', error);
-        res.status(500).json({ error: 'Ошибка загрузки файла' });
-    }
-});
+console.log('✅ Middleware настроены');
 
 // ===== API РОУТЫ =====
 
-// РЕГИСТРАЦИЯ
+// Регистрация
 app.post('/api/register', async (req, res) => {
     try {
         console.log('📝 Регистрация:', req.body);
         const { name, phone, password } = req.body;
         
-        // Проверяем, существует ли пользователь
-        const existing = await db.getUser(phone);
-        if (existing) {
-            return res.status(400).json({ error: 'Пользователь с таким номером уже существует' });
+        if (!name || !phone || !password) {
+            return res.status(400).json({ error: 'Заполните все поля' });
         }
         
-        // Хешируем пароль
+        const existing = await db.getUser(phone);
+        if (existing) {
+            return res.status(400).json({ error: 'Пользователь уже существует' });
+        }
+        
         const hashedPassword = await bcrypt.hash(password, 10);
         const user = {
             id: Date.now().toString(),
@@ -88,29 +60,25 @@ app.post('/api/register', async (req, res) => {
             avatar: name.charAt(0).toUpperCase()
         };
         
-        // Сохраняем пользователя
         await db.createUser(user);
+        console.log('✅ Пользователь создан:', user.id);
         
-        // Генерируем код подтверждения
         const code = String(Math.floor(100000 + Math.random() * 900000));
-        const expires = Date.now() + 5 * 60 * 1000; // 5 минут
-        await db.saveVerification(phone, code, expires);
-        
+        await db.saveVerification(phone, code, Date.now() + 5 * 60 * 1000);
         console.log(`📱 Код для ${phone}: ${code}`);
         
-        // Отправляем успешный ответ с номером телефона
         res.json({ 
             success: true, 
             message: 'Код подтверждения отправлен',
             phone: phone 
         });
     } catch (error) {
-        console.error('Register error:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        console.error('❌ Register error:', error);
+        res.status(500).json({ error: 'Ошибка сервера: ' + error.message });
     }
 });
 
-// ПОДТВЕРЖДЕНИЕ КОДА
+// Подтверждение
 app.post('/api/verify', async (req, res) => {
     try {
         console.log('🔑 Подтверждение:', req.body);
@@ -118,24 +86,23 @@ app.post('/api/verify', async (req, res) => {
         
         const verification = await db.getVerification(phone);
         if (!verification) {
-            return res.status(400).json({ error: 'Код не найден. Запросите новый код' });
+            return res.status(400).json({ error: 'Код не найден' });
         }
         
         if (Date.now() > verification.expires) {
             await db.deleteVerification(phone);
-            return res.status(400).json({ error: 'Код истек. Запросите новый код' });
+            return res.status(400).json({ error: 'Код истек' });
         }
         
         if (verification.code !== code) {
             return res.status(400).json({ error: 'Неверный код' });
         }
         
-        // Код верный - удаляем его и подтверждаем пользователя
         await db.deleteVerification(phone);
         await db.verifyUser(phone);
         
         const user = await db.getUser(phone);
-        console.log(`✅ Пользователь ${user.name} подтвержден!`);
+        console.log(`✅ Пользователь ${user.name} подтвержден`);
         
         res.json({ 
             success: true, 
@@ -148,12 +115,12 @@ app.post('/api/verify', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Verify error:', error);
+        console.error('❌ Verify error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
 
-// ВХОД
+// Вход
 app.post('/api/login', async (req, res) => {
     try {
         console.log('🔐 Вход:', req.body);
@@ -169,22 +136,16 @@ app.post('/api/login', async (req, res) => {
             return res.status(400).json({ error: 'Неверный пароль' });
         }
         
-        // Если пользователь не подтвержден - отправляем код
         if (!user.verified) {
-            console.log(`📱 Пользователь ${phone} не подтвержден, отправляем код`);
             const code = String(Math.floor(100000 + Math.random() * 900000));
-            const expires = Date.now() + 5 * 60 * 1000;
-            await db.saveVerification(phone, code, expires);
+            await db.saveVerification(phone, code, Date.now() + 5 * 60 * 1000);
             console.log(`📱 Код для ${phone}: ${code}`);
-            
             return res.json({ 
                 needVerification: true,
-                phone: phone,
-                message: 'Требуется подтверждение номера'
+                phone: phone
             });
         }
         
-        // Пользователь подтвержден - логиним
         await db.setUserOnline(user.id, true);
         console.log(`✅ Пользователь ${user.name} вошел`);
         
@@ -199,14 +160,13 @@ app.post('/api/login', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Login error:', error);
+        console.error('❌ Login error:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
 
 // ===== ОСТАЛЬНЫЕ РОУТЫ =====
 
-// Получить чаты пользователя
 app.get('/api/chats/:userId', async (req, res) => {
     try {
         const chats = await db.getChats(req.params.userId);
@@ -217,7 +177,6 @@ app.get('/api/chats/:userId', async (req, res) => {
     }
 });
 
-// Получить сообщения чата
 app.get('/api/messages/:chatId', async (req, res) => {
     try {
         const messages = await db.getMessages(req.params.chatId);
@@ -228,7 +187,6 @@ app.get('/api/messages/:chatId', async (req, res) => {
     }
 });
 
-// Создать чат
 app.post('/api/chats', async (req, res) => {
     try {
         const { participants, name } = req.body;
@@ -240,7 +198,6 @@ app.post('/api/chats', async (req, res) => {
     }
 });
 
-// Добавить контакт
 app.post('/api/contacts', async (req, res) => {
     try {
         const { userId, contactId } = req.body;
@@ -258,7 +215,6 @@ app.post('/api/contacts', async (req, res) => {
     }
 });
 
-// Получить пользователя по номеру
 app.get('/api/users/phone/:phone', async (req, res) => {
     try {
         const user = await db.getUser(req.params.phone);
@@ -279,7 +235,6 @@ app.get('/api/users/phone/:phone', async (req, res) => {
     }
 });
 
-// Отметить сообщения как прочитанные
 app.post('/api/messages/read', async (req, res) => {
     try {
         const { chatId, userId } = req.body;
@@ -367,6 +322,15 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Сервер запущен на порту ${PORT}`);
-    console.log(`📱 Откройте http://localhost:${PORT} в браузере`);
+    console.log(`✅ Сервер запущен на порту ${PORT}`);
+    console.log(`📍 http://localhost:${PORT}`);
+});
+
+// ===== ОБРАБОТКА ОШИБОК =====
+process.on('uncaughtException', (error) => {
+    console.error('💥 Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+    console.error('💥 Unhandled Rejection:', error);
 });

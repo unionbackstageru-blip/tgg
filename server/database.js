@@ -2,16 +2,27 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 
-// Создаём папку для данных
+console.log('📦 Инициализация базы данных...');
+
+// ===== СОЗДАЁМ ПАПКУ ДЛЯ ДАННЫХ =====
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
+    console.log('📁 Создана папка data');
 }
 
 const dbPath = path.join(dataDir, 'database.sqlite');
-const db = new sqlite3.Database(dbPath);
+console.log('📄 Путь к БД:', dbPath);
 
-// Инициализация таблиц
+const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+        console.error('❌ Ошибка открытия БД:', err.message);
+        process.exit(1);
+    }
+    console.log('✅ База данных открыта');
+});
+
+// ===== СОЗДАЁМ ТАБЛИЦЫ =====
 db.serialize(() => {
     // Пользователи
     db.run(`
@@ -21,10 +32,26 @@ db.serialize(() => {
             phone TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             avatar TEXT,
+            verified INTEGER DEFAULT 0,
             online INTEGER DEFAULT 0,
             created_at TEXT
         )
-    `);
+    `, (err) => {
+        if (err) console.error('❌ Ошибка users:', err.message);
+        else console.log('✅ Таблица users');
+    });
+
+    // Верификация
+    db.run(`
+        CREATE TABLE IF NOT EXISTS verifications (
+            phone TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            expires INTEGER NOT NULL
+        )
+    `, (err) => {
+        if (err) console.error('❌ Ошибка verifications:', err.message);
+        else console.log('✅ Таблица verifications');
+    });
 
     // Чаты
     db.run(`
@@ -36,16 +63,22 @@ db.serialize(() => {
             last_message TEXT,
             last_message_time TEXT
         )
-    `);
+    `, (err) => {
+        if (err) console.error('❌ Ошибка chats:', err.message);
+        else console.log('✅ Таблица chats');
+    });
 
-    // Участники чатов
+    // Участники
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
             user_id TEXT,
             PRIMARY KEY (chat_id, user_id)
         )
-    `);
+    `, (err) => {
+        if (err) console.error('❌ Ошибка chat_participants:', err.message);
+        else console.log('✅ Таблица chat_participants');
+    });
 
     // Сообщения
     db.run(`
@@ -53,31 +86,42 @@ db.serialize(() => {
             id TEXT PRIMARY KEY,
             chat_id TEXT NOT NULL,
             sender_id TEXT NOT NULL,
-            text TEXT NOT NULL,
+            text TEXT,
+            file TEXT,
             read INTEGER DEFAULT 0,
             created_at TEXT
         )
-    `);
+    `, (err) => {
+        if (err) console.error('❌ Ошибка messages:', err.message);
+        else console.log('✅ Таблица messages');
+    });
 
-    // Непрочитанные сообщения
+    // Непрочитанные
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
             user_id TEXT,
             PRIMARY KEY (message_id, user_id)
         )
-    `);
+    `, (err) => {
+        if (err) console.error('❌ Ошибка unread_messages:', err.message);
+        else console.log('✅ Таблица unread_messages');
+    });
 
-    console.log('✅ База данных инициализирована');
+    console.log('✅ Все таблицы созданы');
 });
 
-// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+// ===== ФУНКЦИИ ДЛЯ РАБОТЫ С БД =====
 
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.run(sql, params, function(err) {
-            if (err) reject(err);
-            else resolve(this);
+            if (err) {
+                console.error('❌ runQuery ошибка:', err.message);
+                reject(err);
+            } else {
+                resolve(this);
+            }
         });
     });
 }
@@ -85,8 +129,12 @@ function runQuery(sql, params = []) {
 function getQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.get(sql, params, (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
+            if (err) {
+                console.error('❌ getQuery ошибка:', err.message);
+                reject(err);
+            } else {
+                resolve(row);
+            }
         });
     });
 }
@@ -94,13 +142,17 @@ function getQuery(sql, params = []) {
 function allQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.all(sql, params, (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
+            if (err) {
+                console.error('❌ allQuery ошибка:', err.message);
+                reject(err);
+            } else {
+                resolve(rows);
+            }
         });
     });
 }
 
-// ===== КЛАСС БД =====
+// ===== КЛАСС ДЛЯ РАБОТЫ С БД =====
 
 class Database {
     // ---------- ПОЛЬЗОВАТЕЛИ ----------
@@ -114,15 +166,35 @@ class Database {
 
     async createUser(user) {
         await runQuery(
-            `INSERT INTO users (id, name, phone, password, avatar, online, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [user.id, user.name, user.phone, user.password, user.avatar, 0, new Date().toISOString()]
+            `INSERT INTO users (id, name, phone, password, avatar, verified, online, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [user.id, user.name, user.phone, user.password, user.avatar, 0, 0, new Date().toISOString()]
         );
         return user;
     }
 
+    async verifyUser(phone) {
+        await runQuery('UPDATE users SET verified = 1 WHERE phone = ?', [phone]);
+    }
+
     async setUserOnline(userId, online) {
         await runQuery('UPDATE users SET online = ? WHERE id = ?', [online ? 1 : 0, userId]);
+    }
+
+    // ---------- ВЕРИФИКАЦИЯ ----------
+    async saveVerification(phone, code, expires) {
+        await runQuery(
+            `INSERT OR REPLACE INTO verifications (phone, code, expires) VALUES (?, ?, ?)`,
+            [phone, code, expires]
+        );
+    }
+
+    async getVerification(phone) {
+        return getQuery('SELECT * FROM verifications WHERE phone = ?', [phone]);
+    }
+
+    async deleteVerification(phone) {
+        await runQuery('DELETE FROM verifications WHERE phone = ?', [phone]);
     }
 
     // ---------- ЧАТЫ ----------
@@ -193,7 +265,7 @@ class Database {
     async updateChatLastMessage(chatId, message) {
         await runQuery(
             `UPDATE chats SET last_message = ?, last_message_time = ? WHERE id = ?`,
-            [message.text, message.created_at, chatId]
+            [message.text || '[Файл]', message.created_at, chatId]
         );
     }
 
@@ -207,9 +279,10 @@ class Database {
 
     async createMessage(message) {
         await runQuery(
-            `INSERT INTO messages (id, chat_id, sender_id, text, read, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [message.id, message.chat_id, message.sender_id, message.text, 0, message.created_at]
+            `INSERT INTO messages (id, chat_id, sender_id, text, file, read, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [message.id, message.chat_id, message.sender_id, message.text, 
+             message.file ? JSON.stringify(message.file) : null, 0, message.created_at]
         );
         
         const participants = await this.getChatParticipants(message.chat_id);
@@ -226,18 +299,12 @@ class Database {
         return message;
     }
 
-    async markAsRead(messageId, userId) {
+    async markAllChatMessagesAsRead(chatId, userId) {
         await runQuery(
-            `DELETE FROM unread_messages WHERE message_id = ? AND user_id = ?`,
-            [messageId, userId]
+            `DELETE FROM unread_messages WHERE message_id IN 
+             (SELECT id FROM messages WHERE chat_id = ?) AND user_id = ?`,
+            [chatId, userId]
         );
-        const unreadCount = await getQuery(
-            `SELECT COUNT(*) as count FROM unread_messages WHERE message_id = ?`,
-            [messageId]
-        );
-        if (unreadCount.count === 0) {
-            await runQuery(`UPDATE messages SET read = 1 WHERE id = ?`, [messageId]);
-        }
     }
 
     async getUnreadCount(chatId, userId) {
@@ -248,18 +315,6 @@ class Database {
             [chatId, userId]
         );
         return result ? result.count : 0;
-    }
-
-    async markAllChatMessagesAsRead(chatId, userId) {
-        const unread = await allQuery(
-            `SELECT um.message_id FROM unread_messages um 
-             JOIN messages m ON um.message_id = m.id 
-             WHERE m.chat_id = ? AND um.user_id = ?`,
-            [chatId, userId]
-        );
-        for (const item of unread) {
-            await this.markAsRead(item.message_id, userId);
-        }
     }
 }
 
