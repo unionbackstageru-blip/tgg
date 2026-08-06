@@ -22,7 +22,9 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: { origin: "*", methods: ["GET", "POST"] },
-    maxHttpBufferSize: 50 * 1024 * 1024
+    maxHttpBufferSize: 50 * 1024 * 1024,
+    pingTimeout: 60000,
+    pingInterval: 25000
 });
 
 app.use(cors());
@@ -60,6 +62,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
 // ===== API РОУТЫ =====
 
+// Регистрация
 app.post('/api/register', async (req, res) => {
     try {
         const { name, phone, password } = req.body;
@@ -94,6 +97,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
+// Подтверждение
 app.post('/api/verify', async (req, res) => {
     try {
         const { phone, code } = req.body;
@@ -130,6 +134,7 @@ app.post('/api/verify', async (req, res) => {
     }
 });
 
+// Вход
 app.post('/api/login', async (req, res) => {
     try {
         const { phone, password } = req.body;
@@ -170,6 +175,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+// Восстановление сессии
 app.post('/api/restore-session', async (req, res) => {
     try {
         const { userId } = req.body;
@@ -198,6 +204,7 @@ app.post('/api/restore-session', async (req, res) => {
     }
 });
 
+// Обновление профиля
 app.post('/api/update-profile', async (req, res) => {
     try {
         const { userId, name, username, bio, avatar } = req.body;
@@ -242,6 +249,7 @@ app.post('/api/update-profile', async (req, res) => {
     }
 });
 
+// Поиск
 app.get('/api/search/:query', async (req, res) => {
     try {
         const users = await db.searchUsers(req.params.query);
@@ -260,6 +268,7 @@ app.get('/api/search/:query', async (req, res) => {
     }
 });
 
+// Получить чаты
 app.get('/api/chats/:userId', async (req, res) => {
     try {
         const chats = await db.getChats(req.params.userId);
@@ -270,6 +279,7 @@ app.get('/api/chats/:userId', async (req, res) => {
     }
 });
 
+// Получить сообщения
 app.get('/api/messages/:chatId', async (req, res) => {
     try {
         const messages = await db.getMessages(req.params.chatId);
@@ -280,6 +290,7 @@ app.get('/api/messages/:chatId', async (req, res) => {
     }
 });
 
+// Создать чат
 app.post('/api/create-chat', async (req, res) => {
     try {
         const { name, type, createdBy, participants, description } = req.body;
@@ -301,6 +312,7 @@ app.post('/api/create-chat', async (req, res) => {
     }
 });
 
+// Добавить контакт
 app.post('/api/contacts', async (req, res) => {
     try {
         const { userId, contactId } = req.body;
@@ -316,6 +328,7 @@ app.post('/api/contacts', async (req, res) => {
     }
 });
 
+// Получить пользователя по номеру
 app.get('/api/users/phone/:phone', async (req, res) => {
     try {
         const user = await db.getUser(req.params.phone);
@@ -334,6 +347,7 @@ app.get('/api/users/phone/:phone', async (req, res) => {
     }
 });
 
+// Получить пользователя по ID
 app.get('/api/users/:userId', async (req, res) => {
     try {
         const user = await db.getUserById(req.params.userId);
@@ -346,6 +360,7 @@ app.get('/api/users/:userId', async (req, res) => {
             avatar: user.avatar,
             bio: user.bio,
             online: user.online === 1,
+            last_seen: user.last_seen,
             created_at: user.created_at
         });
     } catch (error) {
@@ -354,6 +369,7 @@ app.get('/api/users/:userId', async (req, res) => {
     }
 });
 
+// Отметить прочитанные
 app.post('/api/messages/read', async (req, res) => {
     try {
         const { chatId, userId } = req.body;
@@ -365,9 +381,135 @@ app.post('/api/messages/read', async (req, res) => {
     }
 });
 
+// Редактировать сообщение
+app.post('/api/messages/edit', async (req, res) => {
+    try {
+        const { messageId, text, userId } = req.body;
+        const message = await db.getMessage(messageId);
+        if (!message || message.sender_id !== userId) {
+            return res.status(403).json({ error: 'Нет прав' });
+        }
+        const edited = await db.editMessage(messageId, text);
+        res.json({ success: true, message: edited });
+    } catch (error) {
+        console.error('Edit error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Удалить сообщение
+app.post('/api/messages/delete', async (req, res) => {
+    try {
+        const { messageId, userId } = req.body;
+        const message = await db.getMessage(messageId);
+        if (!message || message.sender_id !== userId) {
+            return res.status(403).json({ error: 'Нет прав' });
+        }
+        await db.deleteMessage(messageId, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Добавить реакцию
+app.post('/api/messages/reaction', async (req, res) => {
+    try {
+        const { messageId, userId, reaction } = req.body;
+        const reactions = await db.addReaction(messageId, userId, reaction);
+        // Уведомляем всех в чате
+        const message = await db.getMessage(messageId);
+        if (message) {
+            const participants = await db.getChatParticipants(message.chat_id);
+            for (const p of participants) {
+                const socketId = onlineUsers.get(p.user_id);
+                if (socketId) {
+                    io.to(socketId).emit('reactionUpdate', { messageId, reactions });
+                }
+            }
+        }
+        res.json({ success: true, reactions });
+    } catch (error) {
+        console.error('Reaction error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Удалить реакцию
+app.post('/api/messages/reaction/remove', async (req, res) => {
+    try {
+        const { messageId, userId } = req.body;
+        const reactions = await db.removeReaction(messageId, userId);
+        res.json({ success: true, reactions });
+    } catch (error) {
+        console.error('Remove reaction error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Получить черновик
+app.get('/api/drafts/:chatId/:userId', async (req, res) => {
+    try {
+        const draft = await db.getDraft(req.params.chatId, req.params.userId);
+        res.json({ draft: draft ? draft.text : null });
+    } catch (error) {
+        console.error('Get draft error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Сохранить черновик
+app.post('/api/drafts', async (req, res) => {
+    try {
+        const { chatId, userId, text } = req.body;
+        await db.saveDraft(chatId, userId, text);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Save draft error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Закрепить сообщение
+app.post('/api/messages/pin', async (req, res) => {
+    try {
+        const { chatId, messageId } = req.body;
+        await db.pinMessage(chatId, messageId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Pin error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Открепить сообщение
+app.post('/api/messages/unpin', async (req, res) => {
+    try {
+        const { chatId } = req.body;
+        await db.unpinMessage(chatId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Unpin error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// Поиск по сообщениям
+app.get('/api/search/messages/:query/:userId', async (req, res) => {
+    try {
+        const messages = await db.searchMessages(req.params.query, req.params.userId);
+        res.json(messages);
+    } catch (error) {
+        console.error('Search messages error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
 // ===== WEBSOCKET =====
 
 const onlineUsers = new Map();
+const typingUsers = new Map();
 
 io.on('connection', (socket) => {
     console.log('👤 Подключен:', socket.id);
@@ -378,10 +520,23 @@ io.on('connection', (socket) => {
         io.emit('userStatus', { userId, online: true });
     });
     
+    socket.on('typing', async (data) => {
+        const { chatId, userId, isTyping } = data;
+        const participants = await db.getChatParticipants(chatId);
+        for (const p of participants) {
+            if (p.user_id !== userId) {
+                const socketId = onlineUsers.get(p.user_id);
+                if (socketId) {
+                    io.to(socketId).emit('userTyping', { chatId, userId, isTyping });
+                }
+            }
+        }
+    });
+    
     socket.on('sendMessage', async (data) => {
         try {
             console.log('📨 Отправка сообщения:', data);
-            const { chatId, senderId, text, file } = data;
+            const { chatId, senderId, text, file, replyTo } = data;
             
             const message = {
                 id: Date.now().toString(),
@@ -389,40 +544,25 @@ io.on('connection', (socket) => {
                 sender_id: senderId,
                 text: text || '',
                 file: file || null,
+                reply_to: replyTo || null,
                 created_at: new Date().toISOString()
             };
             
             await db.createMessage(message);
             
             const participants = await db.getChatParticipants(chatId);
-            console.log('👥 Участники чата:', participants);
             
             for (const p of participants) {
                 const socketId = onlineUsers.get(p.user_id);
                 if (socketId) {
-                    // Если получатель онлайн - помечаем как доставлено
                     if (p.user_id !== senderId) {
                         await db.markMessageAsDelivered(message.id);
-                        message.status = 'delivered';
                     }
                     io.to(socketId).emit('newMessage', { message, chatId, senderId });
                     const chats = await db.getChats(p.user_id);
                     io.to(socketId).emit('chatsUpdate', chats);
                 }
             }
-            
-            // Если через 30 секунд сообщение не прочитано - оставляем как доставлено
-            setTimeout(async () => {
-                const msg = await db.getQuery('SELECT status FROM messages WHERE id = ?', [message.id]);
-                if (msg && msg.status === 'sent') {
-                    await db.markMessageAsDelivered(message.id);
-                    // Уведомляем отправителя об обновлении статуса
-                    const senderSocket = onlineUsers.get(senderId);
-                    if (senderSocket) {
-                        io.to(senderSocket).emit('messageStatus', { messageId: message.id, status: 'delivered' });
-                    }
-                }
-            }, 30000);
             
         } catch (error) {
             console.error('❌ Send message error:', error);
@@ -433,8 +573,7 @@ io.on('connection', (socket) => {
         try {
             const { messageId, userId } = data;
             await db.markMessageAsRead(messageId, userId);
-            // Уведомляем отправителя
-            const message = await db.getQuery('SELECT sender_id FROM messages WHERE id = ?', [messageId]);
+            const message = await db.getMessage(messageId);
             if (message) {
                 const senderSocket = onlineUsers.get(message.sender_id);
                 if (senderSocket) {
@@ -443,6 +582,42 @@ io.on('connection', (socket) => {
             }
         } catch (error) {
             console.error('Message read error:', error);
+        }
+    });
+    
+    socket.on('messageDeleted', async (data) => {
+        try {
+            const { messageId, chatId } = data;
+            const message = await db.getMessage(messageId);
+            if (message) {
+                const participants = await db.getChatParticipants(chatId);
+                for (const p of participants) {
+                    const socketId = onlineUsers.get(p.user_id);
+                    if (socketId) {
+                        io.to(socketId).emit('messageDeleted', { messageId, chatId });
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Message delete error:', error);
+        }
+    });
+    
+    socket.on('messageEdited', async (data) => {
+        try {
+            const { messageId, text, chatId } = data;
+            const message = await db.editMessage(messageId, text);
+            if (message) {
+                const participants = await db.getChatParticipants(chatId);
+                for (const p of participants) {
+                    const socketId = onlineUsers.get(p.user_id);
+                    if (socketId) {
+                        io.to(socketId).emit('messageEdited', { messageId, text, chatId });
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Message edit error:', error);
         }
     });
     

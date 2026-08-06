@@ -15,8 +15,9 @@ console.log('📄 Путь к БД:', dbPath);
 
 const db = new sqlite3.Database(dbPath);
 
-// ===== СОЗДАЁМ ТАБЛИЦЫ =====
+// ===== СОЗДАЁМ ВСЕ ТАБЛИЦЫ =====
 db.serialize(() => {
+    // Пользователи
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -28,10 +29,12 @@ db.serialize(() => {
             bio TEXT,
             verified INTEGER DEFAULT 0,
             online INTEGER DEFAULT 0,
+            last_seen TEXT,
             created_at TEXT
         )
     `);
 
+    // Коды верификации
     db.run(`
         CREATE TABLE IF NOT EXISTS verifications (
             phone TEXT PRIMARY KEY,
@@ -40,6 +43,7 @@ db.serialize(() => {
         )
     `);
 
+    // Чаты
     db.run(`
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
@@ -50,20 +54,24 @@ db.serialize(() => {
             created_by TEXT,
             created_at TEXT,
             last_message TEXT,
-            last_message_time TEXT
+            last_message_time TEXT,
+            pinned_message_id TEXT
         )
     `);
 
+    // Участники чатов
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
             user_id TEXT,
             role TEXT DEFAULT 'member',
             joined_at TEXT,
+            muted_until TEXT,
             PRIMARY KEY (chat_id, user_id)
         )
     `);
 
+    // Сообщения (расширенные)
     db.run(`
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -71,13 +79,30 @@ db.serialize(() => {
             sender_id TEXT NOT NULL,
             text TEXT,
             file TEXT,
+            reply_to TEXT,
+            forwarded_from TEXT,
             status TEXT DEFAULT 'sent',
             read INTEGER DEFAULT 0,
             read_at TEXT,
+            edited_at TEXT,
+            deleted INTEGER DEFAULT 0,
+            auto_delete_at TEXT,
             created_at TEXT
         )
     `);
 
+    // Реакции на сообщения
+    db.run(`
+        CREATE TABLE IF NOT EXISTS message_reactions (
+            message_id TEXT,
+            user_id TEXT,
+            reaction TEXT,
+            created_at TEXT,
+            PRIMARY KEY (message_id, user_id)
+        )
+    `);
+
+    // Непрочитанные сообщения
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
@@ -86,6 +111,18 @@ db.serialize(() => {
         )
     `);
 
+    // Черновики
+    db.run(`
+        CREATE TABLE IF NOT EXISTS drafts (
+            chat_id TEXT,
+            user_id TEXT,
+            text TEXT,
+            updated_at TEXT,
+            PRIMARY KEY (chat_id, user_id)
+        )
+    `);
+
+    // Подписчики каналов
     db.run(`
         CREATE TABLE IF NOT EXISTS channel_subscribers (
             channel_id TEXT,
@@ -154,10 +191,10 @@ class Database {
 
     async createUser(user) {
         await runQuery(
-            `INSERT INTO users (id, name, username, phone, password, avatar, bio, verified, online, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO users (id, name, username, phone, password, avatar, bio, verified, online, last_seen, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [user.id, user.name, user.username, user.phone, user.password, 
-             user.avatar || null, user.bio || null, 0, 0, new Date().toISOString()]
+             user.avatar || null, user.bio || null, 0, 0, null, new Date().toISOString()]
         );
         return user;
     }
@@ -181,7 +218,8 @@ class Database {
     }
 
     async setUserOnline(userId, online) {
-        await runQuery('UPDATE users SET online = ? WHERE id = ?', [online ? 1 : 0, userId]);
+        const lastSeen = online ? null : new Date().toISOString();
+        await runQuery('UPDATE users SET online = ?, last_seen = ? WHERE id = ?', [online ? 1 : 0, lastSeen, userId]);
     }
 
     // ---------- ВЕРИФИКАЦИЯ ----------
@@ -205,9 +243,11 @@ class Database {
         const chats = await allQuery(
             `SELECT c.* FROM chats c 
              JOIN chat_participants cp ON c.id = cp.chat_id 
-             WHERE cp.user_id = ? 
+             WHERE cp.user_id = ? AND c.id NOT IN (
+                 SELECT chat_id FROM chat_participants WHERE user_id = ? AND muted_until > datetime('now')
+             )
              ORDER BY c.last_message_time DESC`,
-            [userId]
+            [userId, userId]
         );
         
         for (const chat of chats) {
@@ -222,6 +262,7 @@ class Database {
                     chat.displayName = user ? user.name : 'Неизвестный';
                     chat.avatar = user ? user.avatar : null;
                     chat.userId = user ? user.id : null;
+                    chat.isOnline = user ? user.online === 1 : false;
                 }
             } else {
                 chat.displayName = chat.name || 'Чат';
@@ -270,7 +311,7 @@ class Database {
 
     async getChatParticipants(chatId) {
         const rows = await allQuery(
-            `SELECT user_id, role FROM chat_participants WHERE chat_id = ?`,
+            `SELECT user_id, role, muted_until FROM chat_participants WHERE chat_id = ?`,
             [chatId]
         );
         return rows;
@@ -284,19 +325,21 @@ class Database {
     }
 
     // ---------- СООБЩЕНИЯ ----------
-    async getMessages(chatId) {
+    async getMessages(chatId, limit = 50) {
         return allQuery(
-            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC`,
-            [chatId]
+            `SELECT * FROM messages WHERE chat_id = ? AND deleted = 0 ORDER BY created_at ASC LIMIT ?`,
+            [chatId, limit]
         );
     }
 
     async createMessage(message) {
         await runQuery(
-            `INSERT INTO messages (id, chat_id, sender_id, text, file, status, read, read_at, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (id, chat_id, sender_id, text, file, reply_to, forwarded_from, status, read, read_at, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [message.id, message.chat_id, message.sender_id, message.text, 
-             message.file ? JSON.stringify(message.file) : null, 'sent', 0, null, message.created_at]
+             message.file ? JSON.stringify(message.file) : null, 
+             message.reply_to || null, message.forwarded_from || null,
+             'sent', 0, null, message.created_at]
         );
         
         const participants = await this.getChatParticipants(message.chat_id);
@@ -315,6 +358,25 @@ class Database {
         );
         
         return message;
+    }
+
+    async editMessage(messageId, text) {
+        await runQuery(
+            `UPDATE messages SET text = ?, edited_at = ? WHERE id = ?`,
+            [text, new Date().toISOString(), messageId]
+        );
+        return this.getMessage(messageId);
+    }
+
+    async deleteMessage(messageId, userId) {
+        await runQuery(
+            `UPDATE messages SET deleted = 1 WHERE id = ? AND sender_id = ?`,
+            [messageId, userId]
+        );
+    }
+
+    async getMessage(messageId) {
+        return getQuery('SELECT * FROM messages WHERE id = ? AND deleted = 0', [messageId]);
     }
 
     async markMessageAsDelivered(messageId) {
@@ -349,10 +411,46 @@ class Database {
         const result = await getQuery(
             `SELECT COUNT(*) as count FROM unread_messages um 
              JOIN messages m ON um.message_id = m.id 
-             WHERE m.chat_id = ? AND um.user_id = ?`,
+             WHERE m.chat_id = ? AND um.user_id = ? AND m.deleted = 0`,
             [chatId, userId]
         );
         return result ? result.count : 0;
+    }
+
+    // ---------- РЕАКЦИИ ----------
+    async addReaction(messageId, userId, reaction) {
+        await runQuery(
+            `INSERT OR REPLACE INTO message_reactions (message_id, user_id, reaction, created_at) VALUES (?, ?, ?, ?)`,
+            [messageId, userId, reaction, new Date().toISOString()]
+        );
+        return this.getReactions(messageId);
+    }
+
+    async removeReaction(messageId, userId) {
+        await runQuery(
+            `DELETE FROM message_reactions WHERE message_id = ? AND user_id = ?`,
+            [messageId, userId]
+        );
+        return this.getReactions(messageId);
+    }
+
+    async getReactions(messageId) {
+        return allQuery(
+            `SELECT user_id, reaction FROM message_reactions WHERE message_id = ?`,
+            [messageId]
+        );
+    }
+
+    // ---------- ЧЕРНОВИКИ ----------
+    async saveDraft(chatId, userId, text) {
+        await runQuery(
+            `INSERT OR REPLACE INTO drafts (chat_id, user_id, text, updated_at) VALUES (?, ?, ?, ?)`,
+            [chatId, userId, text, new Date().toISOString()]
+        );
+    }
+
+    async getDraft(chatId, userId) {
+        return getQuery('SELECT text FROM drafts WHERE chat_id = ? AND user_id = ?', [chatId, userId]);
     }
 
     // ---------- КАНАЛЫ ----------
@@ -362,6 +460,48 @@ class Database {
             [channelId, userId, new Date().toISOString()]
         );
         await this.addParticipant(channelId, userId);
+    }
+
+    // ---------- ЗАКРЕПЛЁННЫЕ СООБЩЕНИЯ ----------
+    async pinMessage(chatId, messageId) {
+        await runQuery(
+            `UPDATE chats SET pinned_message_id = ? WHERE id = ?`,
+            [messageId, chatId]
+        );
+    }
+
+    async unpinMessage(chatId) {
+        await runQuery(
+            `UPDATE chats SET pinned_message_id = NULL WHERE id = ?`,
+            [chatId]
+        );
+    }
+
+    // ---------- ТАЙМЕР АВТОУДАЛЕНИЯ ----------
+    async setAutoDelete(chatId, seconds) {
+        const deleteAt = seconds ? new Date(Date.now() + seconds * 1000).toISOString() : null;
+        await runQuery(
+            `UPDATE chats SET auto_delete_at = ? WHERE id = ?`,
+            [deleteAt, chatId]
+        );
+    }
+
+    async getAutoDeleteMessages() {
+        return allQuery(
+            `SELECT * FROM messages WHERE auto_delete_at IS NOT NULL AND auto_delete_at <= datetime('now') AND deleted = 0`
+        );
+    }
+
+    // ---------- ПОИСК ПО СООБЩЕНИЯМ ----------
+    async searchMessages(query, userId) {
+        const chats = await this.getChats(userId);
+        const chatIds = chats.map(c => c.id);
+        if (chatIds.length === 0) return [];
+        return allQuery(
+            `SELECT * FROM messages WHERE chat_id IN (${chatIds.map(() => '?').join(',')}) 
+             AND text LIKE ? AND deleted = 0 ORDER BY created_at DESC LIMIT 50`,
+            [...chatIds, `%${query}%`]
+        );
     }
 }
 

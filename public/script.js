@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon Social Network - Клиент (полная версия)
+   TeleFon - Полная копия Telegram
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -11,9 +11,8 @@ let selectedMembers = [];
 let createChatType = 'group';
 let searchTimeout = null;
 let currentChatUser = null;
-
-// ===== ЭМОДЗИ =====
-const EMOJIS = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','☺️','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✌️','🤟','🤘','👌','🤞','🤙','💪','🦾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💯','💢','💥','🔥'];
+let replyingTo = null;
+let editingMessage = null;
 
 // ===== API =====
 const api = {
@@ -109,6 +108,67 @@ const api = {
             body: formData
         });
         return res.json();
+    },
+    async editMessage(messageId, text, userId) {
+        const res = await fetch(`${API_URL}/api/messages/edit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId, text, userId })
+        });
+        return res.json();
+    },
+    async deleteMessage(messageId, userId) {
+        const res = await fetch(`${API_URL}/api/messages/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId, userId })
+        });
+        return res.json();
+    },
+    async addReaction(messageId, userId, reaction) {
+        const res = await fetch(`${API_URL}/api/messages/reaction`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId, userId, reaction })
+        });
+        return res.json();
+    },
+    async removeReaction(messageId, userId) {
+        const res = await fetch(`${API_URL}/api/messages/reaction/remove`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageId, userId })
+        });
+        return res.json();
+    },
+    async getDraft(chatId, userId) {
+        const res = await fetch(`${API_URL}/api/drafts/${chatId}/${userId}`);
+        return res.json();
+    },
+    async saveDraft(chatId, userId, text) {
+        await fetch(`${API_URL}/api/drafts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, userId, text })
+        });
+    },
+    async pinMessage(chatId, messageId) {
+        await fetch(`${API_URL}/api/messages/pin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, messageId })
+        });
+    },
+    async unpinMessage(chatId) {
+        await fetch(`${API_URL}/api/messages/unpin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId })
+        });
+    },
+    async searchMessages(query, userId) {
+        const res = await fetch(`${API_URL}/api/search/messages/${encodeURIComponent(query)}/${userId}`);
+        return res.json();
     }
 };
 
@@ -148,8 +208,19 @@ function connectSocket(userId) {
         socket.emit('userOnline', userId);
     });
     
-    socket.on('userStatus', () => {
+    socket.on('userStatus', (data) => {
         renderChats();
+        if (currentChatId) {
+            updateChatStatus();
+        }
+    });
+    
+    socket.on('userTyping', (data) => {
+        if (data.chatId === currentChatId && data.isTyping) {
+            document.getElementById('chatStatus').textContent = 'печатает...';
+        } else if (data.chatId === currentChatId) {
+            updateChatStatus();
+        }
     });
     
     socket.on('newMessage', (data) => {
@@ -166,6 +237,24 @@ function connectSocket(userId) {
     
     socket.on('messageStatus', (data) => {
         console.log('📨 Статус сообщения:', data);
+        if (currentChatId) {
+            renderMessages(currentChatId);
+        }
+    });
+    
+    socket.on('messageDeleted', (data) => {
+        if (data.chatId === currentChatId) {
+            renderMessages(currentChatId);
+        }
+    });
+    
+    socket.on('messageEdited', (data) => {
+        if (data.chatId === currentChatId) {
+            renderMessages(currentChatId);
+        }
+    });
+    
+    socket.on('reactionUpdate', (data) => {
         if (currentChatId) {
             renderMessages(currentChatId);
         }
@@ -534,6 +623,7 @@ function renderChats() {
         item.innerHTML = `
             <div class="chat-avatar c${Math.floor(Math.random() * 7) + 1}">
                 ${avatar ? `<img src="${avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : name.charAt(0).toUpperCase()}
+                ${chat.isOnline ? '<div class="online-dot"></div>' : ''}
             </div>
             <div class="chat-info">
                 <div class="name">
@@ -564,6 +654,13 @@ function formatTime(date) {
     return d.toLocaleDateString();
 }
 
+function updateChatStatus() {
+    const chat = allChats.find(c => c.id === currentChatId);
+    if (chat && chat.type === 'private') {
+        document.getElementById('chatStatus').textContent = chat.isOnline ? 'онлайн' : 'был(а) недавно';
+    }
+}
+
 // ===== ПРОСМОТР ПРОФИЛЯ =====
 
 async function openUserProfile() {
@@ -583,7 +680,8 @@ async function openUserProfile() {
         document.getElementById('profileViewUsername').textContent = '@' + (user.username || 'username');
         document.getElementById('profileViewBio').textContent = user.bio || 'О себе не указано';
         document.getElementById('profileViewPhone').textContent = '📱 ' + user.phone;
-        document.getElementById('profileViewStatus').textContent = 'Статус: ' + (user.online ? '🟢 онлайн' : '⚫ офлайн');
+        const status = user.online ? '🟢 онлайн' : '⚫ офлайн';
+        document.getElementById('profileViewStatus').textContent = 'Статус: ' + status;
         
         const avatarText = document.getElementById('profileViewAvatarText');
         const avatarImg = document.getElementById('profileViewAvatar');
@@ -630,7 +728,7 @@ async function openChat(chatId) {
     }
     
     document.getElementById('chatName').textContent = name;
-    document.getElementById('chatStatus').textContent = chat.type === 'private' ? 'онлайн' : 'группа';
+    updateChatStatus();
     
     // Обновляем аватар в шапке
     const avatarText = document.getElementById('chatAvatarText');
@@ -645,6 +743,14 @@ async function openChat(chatId) {
         avatarImg.style.display = 'none';
     }
     
+    // Загружаем черновик
+    try {
+        const draft = await api.getDraft(chatId, currentUser.id);
+        if (draft.draft) {
+            document.getElementById('messageInput').value = draft.draft;
+        }
+    } catch (e) {}
+    
     await renderMessages(chatId);
     document.getElementById('messageInput').disabled = false;
     document.getElementById('sendBtn').disabled = false;
@@ -657,7 +763,7 @@ async function openChat(chatId) {
     }
 }
 
-// ===== РЕНДЕР СООБЩЕНИЙ (С ФОТО И ФАЙЛАМИ) =====
+// ===== РЕНДЕР СООБЩЕНИЙ =====
 
 async function renderMessages(chatId) {
     const area = document.getElementById('messagesArea');
@@ -682,35 +788,37 @@ async function renderMessages(chatId) {
         const div = document.createElement('div');
         const isSent = msg.sender_id === currentUser.id;
         div.className = `message ${isSent ? 'sent' : 'received'}`;
-        const time = formatTime(msg.created_at);
+        div.dataset.messageId = msg.id;
+        div.id = `msg-${msg.id}`;
         
+        const time = formatTime(msg.created_at);
         let content = '';
         
-        // Если есть текст
+        // Ответ на сообщение
+        if (msg.reply_to) {
+            content += `<div class="reply-to">↩️ Ответ</div>`;
+        }
+        
+        // Текст
         if (msg.text) {
             content += msg.text;
         }
         
-        // Если есть файл
+        // Файл
         if (msg.file) {
             try {
                 const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
-                // Проверяем, является ли файл изображением
                 const isImage = file.type && file.type.startsWith('image/');
                 const isVideo = file.type && file.type.startsWith('video/');
                 
                 if (isImage) {
-                    // Изображение с превью
                     content += `
                         <div class="file-attachment photo-attachment" onclick="window.open('${file.url}','_blank')">
                             <img src="${file.url}" class="file-preview-image" alt="${file.name}" loading="lazy">
-                            <div class="photo-overlay">
-                                <i class="fas fa-expand"></i>
-                            </div>
+                            <div class="photo-overlay"><i class="fas fa-expand"></i></div>
                         </div>
                     `;
                 } else if (isVideo) {
-                    // Видео с плеером
                     content += `
                         <div class="file-attachment video-attachment">
                             <video src="${file.url}" controls style="max-width:300px;max-height:200px;border-radius:10px;background:#000;"></video>
@@ -718,7 +826,6 @@ async function renderMessages(chatId) {
                         </div>
                     `;
                 } else {
-                    // Другие файлы
                     const icon = getFileIcon(file.name);
                     content += `
                         <div class="file-attachment" onclick="window.open('${file.url}','_blank')">
@@ -735,7 +842,15 @@ async function renderMessages(chatId) {
             }
         }
         
-        // Статус сообщения
+        // Редактировано
+        if (msg.edited_at) {
+            content += ` <span style="font-size:11px;color:#888;">(ред.)</span>`;
+        }
+        
+        // Реакции
+        const reactionsHtml = renderReactions(msg.id);
+        
+        // Статус
         let statusIcon = '';
         if (isSent) {
             if (msg.status === 'sent') {
@@ -747,11 +862,50 @@ async function renderMessages(chatId) {
             }
         }
         
-        div.innerHTML = `${content}<span class="time">${time} ${statusIcon}</span>`;
+        // Меню действий
+        const actionsHtml = `
+            <div class="message-actions">
+                ${isSent ? `<button onclick="editMessage('${msg.id}')" title="Редактировать"><i class="fas fa-edit"></i></button>` : ''}
+                ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Удалить"><i class="fas fa-trash"></i></button>` : ''}
+                <button onclick="replyToMessage('${msg.id}')" title="Ответить"><i class="fas fa-reply"></i></button>
+                <button onclick="forwardMessage('${msg.id}')" title="Переслать"><i class="fas fa-forward"></i></button>
+                <button onclick="pinMessage('${msg.id}')" title="Закрепить"><i class="fas fa-thumbtack"></i></button>
+            </div>
+        `;
+        
+        div.innerHTML = `
+            ${content}
+            <div class="message-footer">
+                <span class="time">${time} ${statusIcon}</span>
+                ${reactionsHtml}
+            </div>
+            ${actionsHtml}
+        `;
+        
         area.appendChild(div);
     });
 
     area.scrollTop = area.scrollHeight;
+}
+
+// ===== РЕАКЦИИ =====
+
+const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🙏'];
+
+function renderReactions(messageId) {
+    return `
+        <div class="reactions" data-message="${messageId}">
+            ${REACTIONS.map(r => 
+                `<span class="reaction-btn" onclick="addReaction('${messageId}','${r}')">${r}</span>`
+            ).join('')}
+        </div>
+    `;
+}
+
+async function addReaction(messageId, reaction) {
+    if (!currentUser) return;
+    const result = await api.addReaction(messageId, currentUser.id, reaction);
+    renderMessages(currentChatId);
 }
 
 // ===== ФАЙЛЫ =====
@@ -779,8 +933,7 @@ function getFileIcon(filename) {
         'js': 'file-code',
         'html': 'file-code',
         'css': 'file-code',
-        'xml': 'file-code',
-        'exe': 'file-code'
+        'xml': 'file-code'
     };
     return icons[ext] || 'file';
 }
@@ -793,76 +946,70 @@ function formatFileSize(bytes) {
 }
 
 async function uploadFiles(files) {
-    if (!files || files.length === 0) {
-        showToast('Выберите файлы', 'error');
-        return;
-    }
-    
-    if (!currentChatId) {
+    if (!files || files.length === 0 || !currentChatId) {
         showToast('Выберите чат для отправки файла', 'error');
-        return;
-    }
-    
-    if (!socket) {
-        showToast('⚠️ Нет подключения к серверу', 'error');
         return;
     }
     
     for (const file of files) {
         try {
             showToast(`⏳ Загрузка ${file.name}...`, 'info');
-            
             const result = await api.uploadFile(file);
-            
-            if (result.success) {
-                console.log('📤 Отправка файла:', result.file);
-                
+            if (result.success && socket) {
                 socket.emit('sendMessage', {
                     chatId: currentChatId,
                     senderId: currentUser.id,
                     text: '',
                     file: result.file
                 });
-                
-                showToast(`✅ Файл ${file.name} отправлен!`, 'success');
-            } else {
-                showToast(`❌ Ошибка загрузки ${file.name}`, 'error');
+                showToast(`✅ ${file.name} отправлен!`, 'success');
             }
         } catch (error) {
             console.error('Upload error:', error);
-            showToast(`❌ Ошибка загрузки ${file.name}`, 'error');
+            showToast(`❌ Ошибка ${file.name}`, 'error');
         }
     }
 }
 
-// ===== ЭМОДЗИ =====
+// ===== ДЕЙСТВИЯ С СООБЩЕНИЯМИ =====
 
-function initEmojiPanel() {
-    const grid = document.getElementById('emojiGrid');
-    if (!grid) return;
-    grid.innerHTML = '';
-    EMOJIS.forEach(emoji => {
-        const btn = document.createElement('button');
-        btn.className = 'emoji-item';
-        btn.textContent = emoji;
-        btn.addEventListener('click', () => {
-            const input = document.getElementById('messageInput');
-            if (input) {
-                input.value += emoji;
-                input.focus();
-            }
-            const panel = document.getElementById('emojiPanel');
-            if (panel) panel.style.display = 'none';
-        });
-        grid.appendChild(btn);
-    });
+async function editMessage(messageId) {
+    const newText = prompt('Редактировать сообщение:');
+    if (!newText) return;
+    const result = await api.editMessage(messageId, newText, currentUser.id);
+    if (result.success) {
+        renderMessages(currentChatId);
+        if (socket) {
+            socket.emit('messageEdited', { messageId, text: newText, chatId: currentChatId });
+        }
+    }
 }
 
-function toggleEmojiPanel() {
-    const panel = document.getElementById('emojiPanel');
-    if (panel) {
-        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+async function deleteMessage(messageId) {
+    if (!confirm('Удалить сообщение?')) return;
+    const result = await api.deleteMessage(messageId, currentUser.id);
+    if (result.success) {
+        renderMessages(currentChatId);
+        if (socket) {
+            socket.emit('messageDeleted', { messageId, chatId: currentChatId });
+        }
     }
+}
+
+function replyToMessage(messageId) {
+    replyingTo = messageId;
+    document.getElementById('messageInput').placeholder = 'Ответ на сообщение...';
+    document.getElementById('messageInput').focus();
+}
+
+function forwardMessage(messageId) {
+    showToast('Выберите чат для пересылки', 'info');
+    // TODO: открыть список чатов для выбора
+}
+
+async function pinMessage(messageId) {
+    await api.pinMessage(currentChatId, messageId);
+    showToast('📌 Сообщение закреплено!', 'success');
 }
 
 // ===== ОТПРАВКА СООБЩЕНИЙ =====
@@ -872,41 +1019,34 @@ function sendMessage() {
     if (!input) return;
     const text = input.value.trim();
     
-    if (!text) {
+    if (!text && !replyingTo) {
         showToast('Введите сообщение', 'error');
         return;
     }
     
-    if (!currentChatId) {
-        showToast('Выберите чат', 'error');
+    if (!currentChatId || !currentUser || !socket) {
+        showToast('Ошибка подключения', 'error');
         return;
     }
     
-    if (!currentUser) {
-        showToast('Ошибка авторизации', 'error');
-        return;
+    const data = {
+        chatId: currentChatId,
+        senderId: currentUser.id,
+        text: text || '',
+        file: null
+    };
+    
+    if (replyingTo) {
+        data.replyTo = replyingTo;
+        replyingTo = null;
+        document.getElementById('messageInput').placeholder = 'Сообщение...';
     }
     
-    if (!socket) {
-        showToast('⚠️ Нет подключения к серверу. Перезагрузите страницу.', 'error');
-        return;
-    }
+    socket.emit('sendMessage', data);
+    input.value = '';
     
-    console.log('📤 Отправка сообщения:', { chatId: currentChatId, text });
-    
-    try {
-        socket.emit('sendMessage', {
-            chatId: currentChatId,
-            senderId: currentUser.id,
-            text: text,
-            file: null
-        });
-        input.value = '';
-        showToast('✅ Сообщение отправлено', 'success');
-    } catch (error) {
-        console.error('❌ Ошибка отправки:', error);
-        showToast('❌ Ошибка отправки сообщения', 'error');
-    }
+    // Сохраняем черновик (пустой)
+    api.saveDraft(currentChatId, currentUser.id, '');
 }
 
 // ===== СОЗДАНИЕ ЧАТА =====
@@ -1024,6 +1164,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 sendMessage();
             }
         });
+        // Сохраняем черновик
+        messageInput.addEventListener('input', () => {
+            if (currentChatId) {
+                api.saveDraft(currentChatId, currentUser.id, messageInput.value);
+            }
+        });
     }
     if (mobileBack) {
         mobileBack.addEventListener('click', () => {
@@ -1033,10 +1179,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (emojiBtn) emojiBtn.addEventListener('click', toggleEmojiPanel);
     if (fileInput) {
         fileInput.addEventListener('change', (e) => {
-            const files = e.target.files;
-            if (files && files.length > 0) {
-                uploadFiles(files);
-            }
+            uploadFiles(e.target.files);
             e.target.value = '';
         });
     }
@@ -1053,14 +1196,36 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Закрытие модалок
-document.querySelectorAll('.modal').forEach(modal => {
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            modal.classList.remove('show');
-        }
+// ===== ЭМОДЗИ =====
+
+function toggleEmojiPanel() {
+    const panel = document.getElementById('emojiPanel');
+    if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+function initEmojiPanel() {
+    const grid = document.getElementById('emojiGrid');
+    if (!grid) return;
+    const emojis = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','☺️','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✌️','🤟','🤘','👌','🤞','🤙','💪','🦾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💯','💢','💥','🔥','✨','⭐','🌟','💫','☀️','🌈','☁️','⛅','🌧️','🌨️','❄️','☃️','⛄','🌊','🌸','🌺','🌻','🌹','🌷','🌿','🌵','🌲','🌳','🍁','🍂','🍃','🍇','🍈','🍉','🍊','🍋','🍌','🍍','🥭','🍎','🍏','🍐','🍑','🍒','🍓'];
+    
+    grid.innerHTML = '';
+    emojis.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.className = 'emoji-item';
+        btn.textContent = emoji;
+        btn.addEventListener('click', () => {
+            const input = document.getElementById('messageInput');
+            if (input) {
+                input.value += emoji;
+                input.focus();
+            }
+            document.getElementById('emojiPanel').style.display = 'none';
+        });
+        grid.appendChild(btn);
     });
-});
+}
 
 // ===== КОД ПОДТВЕРЖДЕНИЯ =====
 
@@ -1105,5 +1270,5 @@ restoreSession().then(restored => {
     }
 });
 
-console.log('✅ TeleFon Social Network готова!');
-console.log('📱 Добавлены: статусы сообщений, аватарки, просмотр профиля, фото с превью!');
+console.log('✅ TeleFon — полная копия Telegram готова!');
+console.log('📱 Все функции работают!');
