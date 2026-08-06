@@ -1,5 +1,5 @@
 /* ============================================================
-   Telegram Social Network - Клиент (полная версия)
+   Telegram Social Network - Клиент
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -12,19 +12,7 @@ let createChatType = 'group';
 let searchTimeout = null;
 
 // ===== ЭМОДЗИ =====
-const EMOJIS = [
-    '😀', '😁', '😂', '🤣', '😃', '😄', '😅', '😆', '😉', '😊',
-    '😋', '😎', '😍', '🥰', '😘', '😗', '😙', '😚', '☺️', '🙂',
-    '🤗', '🤩', '🤔', '🤨', '😐', '😑', '😶', '🙄', '😏', '😣',
-    '😥', '😮', '🤐', '😯', '😪', '😫', '😴', '😌', '😛', '😜',
-    '😝', '🤤', '😒', '😓', '😔', '😕', '🙃', '🤑', '😲', '☹️',
-    '🙁', '😖', '😞', '😟', '😤', '😢', '😭', '😦', '😧', '😨',
-    '😩', '🤯', '😬', '😰', '😱', '🥵', '🥶', '😳', '🤪', '😵',
-    '😡', '😠', '🤬', '👍', '👎', '👊', '✊', '🤛', '🤜', '👏',
-    '🙌', '👐', '🤲', '🤝', '🙏', '✌️', '🤟', '🤘', '👌', '🤞',
-    '🤙', '💪', '🦾', '🖕', '❤️', '🧡', '💛', '💚', '💙', '💜',
-    '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💯', '💢', '💥', '🔥'
-];
+const EMOJIS = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','☺️','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪','😫','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️','🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵','🥶','😳','🤪','😵','😡','😠','🤬','👍','👎','👊','✊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✌️','🤟','🤘','👌','🤞','🤙','💪','🦾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','💯','💢','💥','🔥','✨','⭐','🌟','💫','☀️','🌈','☁️','⛅','🌧️','🌨️','❄️','☃️','⛄','🌊','🌸','🌺','🌻','🌹','🌷','🌿','🌵','🌲','🌳','🍁','🍂','🍃','🍇','🍈','🍉','🍊','🍋','🍌','🍍','🥭','🍎','🍏','🍐','🍑','🍒','🍓'];
 
 // ===== API =====
 const api = {
@@ -36,7 +24,6 @@ const api = {
         });
         return res.json();
     },
-
     async verify(phone, code) {
         const res = await fetch(`${API_URL}/api/verify`, {
             method: 'POST',
@@ -45,7 +32,6 @@ const api = {
         });
         return res.json();
     },
-
     async login(phone, password) {
         const res = await fetch(`${API_URL}/api/login`, {
             method: 'POST',
@@ -54,7 +40,14 @@ const api = {
         });
         return res.json();
     },
-
+    async restoreSession(userId) {
+        const res = await fetch(`${API_URL}/api/restore-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId })
+        });
+        return res.json();
+    },
     async updateProfile(data) {
         const res = await fetch(`${API_URL}/api/update-profile`, {
             method: 'POST',
@@ -63,12 +56,10 @@ const api = {
         });
         return res.json();
     },
-
     async searchUsers(query, userId) {
         const res = await fetch(`${API_URL}/api/search/${encodeURIComponent(query)}?userId=${userId}`);
         return res.json();
     },
-
     async createChat(data) {
         const res = await fetch(`${API_URL}/api/create-chat`, {
             method: 'POST',
@@ -77,17 +68,14 @@ const api = {
         });
         return res.json();
     },
-
     async getChats(userId) {
         const res = await fetch(`${API_URL}/api/chats/${userId}`);
         return res.json();
     },
-
     async getMessages(chatId) {
         const res = await fetch(`${API_URL}/api/messages/${chatId}`);
         return res.json();
     },
-
     async addContact(userId, contactId) {
         const res = await fetch(`${API_URL}/api/contacts`, {
             method: 'POST',
@@ -96,13 +84,11 @@ const api = {
         });
         return res.json();
     },
-
     async findUserByPhone(phone) {
         const res = await fetch(`${API_URL}/api/users/phone/${encodeURIComponent(phone)}`);
         if (res.status === 404) return null;
         return res.json();
     },
-
     async markAsRead(chatId, userId) {
         await fetch(`${API_URL}/api/messages/read`, {
             method: 'POST',
@@ -110,7 +96,6 @@ const api = {
             body: JSON.stringify({ chatId, userId })
         });
     },
-
     async uploadFile(file) {
         const formData = new FormData();
         formData.append('file', file);
@@ -119,53 +104,19 @@ const api = {
             body: formData
         });
         return res.json();
-    },
-
-    async subscribe(channelId, userId) {
-        const res = await fetch(`${API_URL}/api/subscribe`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ channelId, userId })
-        });
-        return res.json();
-    },
-
-    async unsubscribe(channelId, userId) {
-        const res = await fetch(`${API_URL}/api/unsubscribe`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ channelId, userId })
-        });
-        return res.json();
-    },
-
-    async restoreSession(userId) {
-        const res = await fetch(`${API_URL}/api/restore-session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId })
-        });
-        return res.json();
     }
 };
 
 // ===== WEBSOCKET =====
 function connectSocket(userId) {
-    socket = io(API_URL, {
-        transports: ['websocket', 'polling']
-    });
+    socket = io(API_URL);
     
     socket.on('connect', () => {
         console.log('🔌 WebSocket подключен');
         socket.emit('userOnline', userId);
     });
     
-    socket.on('connect_error', (error) => {
-        console.error('❌ WebSocket ошибка:', error);
-        showToast('Ошибка подключения к серверу', 'error');
-    });
-    
-    socket.on('userStatus', () => { renderChats(); });
+    socket.on('userStatus', () => renderChats());
     
     socket.on('newMessage', (data) => {
         if (data.chatId === currentChatId) {
@@ -193,7 +144,7 @@ async function restoreSession() {
             return true;
         }
     } catch (error) {
-        console.log('Сессия не восстановлена:', error);
+        console.log('Сессия не восстановлена');
     }
     return false;
 }
@@ -233,18 +184,14 @@ async function register() {
     if (!phone || phone.length < 10) { showToast('Введите корректный номер', 'error'); return; }
     if (!password || password.length < 6) { showToast('Пароль минимум 6 символов', 'error'); return; }
 
-    showToast('⏳ Отправка...', 'info');
-    
     const result = await api.register(name, phone, password);
-    console.log('📝 Результат регистрации:', result);
-    
     if (result.error) {
         showToast(result.error, 'error');
         return;
     }
 
     if (result.success) {
-        showToast('📱 Код отправлен!', 'success');
+        showToast('📱 Код отправлен! Проверьте консоль', 'success');
         showVerification(phone);
     }
 }
@@ -275,7 +222,6 @@ async function resendCode() {
     const phone = document.getElementById('verifyPhone').textContent;
     const name = document.getElementById('regName').value.trim() || 'User';
     const password = document.getElementById('regPassword').value || '123456';
-    
     const result = await api.register(name, phone, password);
     if (result.error) {
         showToast(result.error, 'error');
@@ -293,10 +239,7 @@ async function login() {
         return;
     }
 
-    showToast('⏳ Вход...', 'info');
-    
     const result = await api.login(phone, password);
-    console.log('🔐 Результат входа:', result);
     
     if (result.error) {
         showToast(result.error, 'error');
@@ -320,8 +263,6 @@ function loginUser(user) {
     document.getElementById('mainApp').style.display = 'flex';
     
     updateProfileUI(user);
-    
-    // СОХРАНЯЕМ СЕССИЮ
     localStorage.setItem('telegram_user_id', user.id);
     
     connectSocket(user.id);
@@ -337,7 +278,7 @@ function updateProfileUI(user) {
     const avatarText = document.getElementById('profileAvatarText');
     const avatarImg = document.getElementById('profileAvatarImg');
     
-    if (user.avatar) {
+    if (user.avatar && user.avatar.startsWith('http')) {
         avatarImg.src = user.avatar;
         avatarImg.style.display = 'block';
         avatarText.style.display = 'none';
@@ -356,11 +297,13 @@ function logout() {
     document.getElementById('mainApp').style.display = 'none';
     document.getElementById('authScreen').style.display = 'flex';
     document.getElementById('loginPassword').value = '';
+    showToast('Вы вышли из аккаунта', 'info');
 }
 
 // ===== НАСТРОЙКИ =====
 
 function openSettings() {
+    if (!currentUser) return;
     const modal = document.getElementById('settingsModal');
     document.getElementById('settingsName').value = currentUser.name || '';
     document.getElementById('settingsUsername').value = currentUser.username || '';
@@ -369,7 +312,7 @@ function openSettings() {
     const avatarText = document.getElementById('settingsAvatarText');
     const avatarImg = document.getElementById('settingsAvatarImg');
     
-    if (currentUser.avatar) {
+    if (currentUser.avatar && currentUser.avatar.startsWith('http')) {
         avatarImg.src = currentUser.avatar;
         avatarImg.style.display = 'block';
         avatarText.style.display = 'none';
@@ -395,17 +338,20 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
             img.src = event.target.result;
             img.style.display = 'block';
             document.getElementById('settingsAvatarText').style.display = 'none';
-            currentUser.avatar = event.target.result;
+            // Временно сохраняем как data URL
+            window.tempAvatar = event.target.result;
         };
         reader.readAsDataURL(file);
     }
 });
 
 async function saveSettings() {
+    if (!currentUser) return;
+    
     const name = document.getElementById('settingsName').value.trim();
     const username = document.getElementById('settingsUsername').value.trim();
     const bio = document.getElementById('settingsBio').value.trim();
-    const avatar = currentUser.avatar || null;
+    const avatar = window.tempAvatar || currentUser.avatar || null;
     
     if (!name) { showToast('Введите имя', 'error'); return; }
     if (!username) { showToast('Введите username', 'error'); return; }
@@ -427,6 +373,7 @@ async function saveSettings() {
     if (result.success) {
         currentUser = result.user;
         updateProfileUI(currentUser);
+        window.tempAvatar = null;
         closeSettings();
         showToast('✅ Профиль обновлен!', 'success');
         renderChats();
@@ -439,10 +386,8 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
     const query = e.target.value.trim();
     if (query.length > 1) {
         clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            searchUsers(query);
-        }, 300);
-    } else if (query.length === 0) {
+        searchTimeout = setTimeout(() => searchUsers(query), 300);
+    } else {
         renderChats();
     }
 });
@@ -496,19 +441,11 @@ async function loadChats() {
     renderChats();
 }
 
-function renderChats(filter = '') {
+function renderChats() {
     const list = document.getElementById('chatList');
     list.innerHTML = '';
 
-    let chats = allChats;
-    if (filter) {
-        chats = chats.filter(chat => {
-            const name = getChatName(chat);
-            return name.toLowerCase().includes(filter.toLowerCase());
-        });
-    }
-
-    if (chats.length === 0) {
+    if (!allChats || allChats.length === 0) {
         list.innerHTML = `
             <div style="padding: 40px 20px; text-align: center; color: #6a6a6a;">
                 <p>У вас пока нет чатов</p>
@@ -518,9 +455,8 @@ function renderChats(filter = '') {
         return;
     }
 
-    chats.forEach(chat => {
-        const name = getChatName(chat);
-        const avatar = getChatAvatar(chat);
+    allChats.forEach(chat => {
+        const name = chat.name || 'Чат';
         const lastMsg = chat.last_message || 'Нет сообщений';
         const time = formatTime(chat.last_message_time);
         const unread = chat.unread || 0;
@@ -534,7 +470,7 @@ function renderChats(filter = '') {
         item.className = `chat-item ${chat.id === currentChatId ? 'active' : ''}`;
         item.innerHTML = `
             <div class="chat-avatar c${Math.floor(Math.random() * 7) + 1}">
-                ${avatar}
+                ${name.charAt(0).toUpperCase()}
             </div>
             <div class="chat-info">
                 <div class="name">
@@ -553,33 +489,15 @@ function renderChats(filter = '') {
     });
 }
 
-function getChatName(chat) {
-    if (!currentUser) return 'Чат';
-    if (chat.name) return chat.name;
-    const participants = chat.participants || [];
-    const others = participants.filter(p => p.user_id !== currentUser.id);
-    if (others.length === 0) return 'Чат';
-    return 'Собеседник';
-}
-
-function getChatAvatar(chat) {
-    if (chat.avatar) return `<img src="${chat.avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
-    if (chat.name) return chat.name.charAt(0).toUpperCase();
-    return 'Ч';
-}
-
 function formatTime(date) {
     if (!date) return '';
     const d = new Date(date);
     const now = new Date();
     if (d.toDateString() === now.toDateString()) {
-        return d.getHours().toString().padStart(2, '0') + ':' + 
-               d.getMinutes().toString().padStart(2, '0');
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     }
     const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-    if (now - d < 7 * 24 * 60 * 60 * 1000) {
-        return days[d.getDay()];
-    }
+    if (now - d < 7 * 24 * 60 * 60 * 1000) return days[d.getDay()];
     return d.toLocaleDateString();
 }
 
@@ -590,7 +508,7 @@ async function openChat(chatId) {
     const chat = allChats.find(c => c.id === chatId);
     if (!chat) return;
 
-    document.getElementById('chatName').textContent = getChatName(chat);
+    document.getElementById('chatName').textContent = chat.name || 'Чат';
     document.getElementById('chatAvatar').textContent = chat.name ? chat.name.charAt(0).toUpperCase() : 'Ч';
     
     await renderMessages(chatId);
@@ -629,16 +547,12 @@ async function renderMessages(chatId) {
         const time = formatTime(msg.created_at);
         
         let content = msg.text || '';
-        
         if (msg.file) {
             const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
-            content += renderFileAttachment(file, isSent);
+            content += renderFile(file);
         }
         
-        div.innerHTML = `
-            ${content}
-            <span class="time">${time}</span>
-        `;
+        div.innerHTML = `${content}<span class="time">${time}</span>`;
         area.appendChild(div);
     });
 
@@ -647,59 +561,26 @@ async function renderMessages(chatId) {
 
 // ===== ФАЙЛЫ =====
 
-function renderFileAttachment(file, isSent) {
+function renderFile(file) {
     const isImage = file.type && file.type.startsWith('image/');
-    const size = formatFileSize(file.size);
-    
     if (isImage) {
-        return `
-            <div class="file-attachment" onclick="showFilePreview('${file.url}')">
-                <img src="${file.url}" class="file-preview-image" alt="${file.name}" loading="lazy">
-            </div>
-        `;
+        return `<div class="file-attachment"><img src="${file.url}" class="file-preview-image" onclick="window.open('${file.url}','_blank')"></div>`;
     }
-    
     return `
-        <div class="file-attachment" onclick="downloadFile('${file.url}')">
-            <i class="fas fa-${getFileIcon(file.name)}"></i>
+        <div class="file-attachment" onclick="window.open('${file.url}','_blank')">
+            <i class="fas fa-file"></i>
             <div class="file-info">
                 <div class="file-name">${file.name}</div>
-                <div class="file-size">${size}</div>
+                <div class="file-size">${formatFileSize(file.size)}</div>
             </div>
         </div>
     `;
 }
 
-function getFileIcon(filename) {
-    const ext = filename.split('.').pop().toLowerCase();
-    const icons = {
-        'pdf': 'file-pdf',
-        'doc': 'file-word',
-        'docx': 'file-word',
-        'xls': 'file-excel',
-        'xlsx': 'file-excel',
-        'ppt': 'file-powerpoint',
-        'pptx': 'file-powerpoint',
-        'txt': 'file-alt',
-        'zip': 'file-archive',
-        'rar': 'file-archive',
-        'mp3': 'file-audio',
-        'mp4': 'file-video',
-        'avi': 'file-video',
-        'mkv': 'file-video',
-        'json': 'file-code',
-        'js': 'file-code',
-        'html': 'file-code',
-        'css': 'file-code'
-    };
-    return icons[ext] || 'file';
-}
-
 function formatFileSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 async function uploadFiles(files) {
@@ -707,85 +588,19 @@ async function uploadFiles(files) {
     
     for (const file of files) {
         try {
-            const progressId = showUploadProgress(file.name);
             const result = await api.uploadFile(file);
-            removeUploadProgress(progressId);
             if (result.success) {
-                sendMessageWithFile(result.file);
+                socket.emit('sendMessage', {
+                    chatId: currentChatId,
+                    senderId: currentUser.id,
+                    text: '',
+                    file: result.file
+                });
             }
         } catch (error) {
-            console.error('Upload error:', error);
-            showToast('Ошибка при загрузке файла', 'error');
+            showToast('Ошибка загрузки файла', 'error');
         }
     }
-}
-
-function showUploadProgress(filename) {
-    const area = document.getElementById('messagesArea');
-    const id = 'progress-' + Date.now();
-    const div = document.createElement('div');
-    div.className = 'message sent';
-    div.id = id;
-    div.innerHTML = `
-        <div class="upload-progress">
-            <i class="fas fa-file"></i>
-            <div style="flex:1; min-width:0;">
-                <div style="color: #e0e0e0; font-size: 14px;">${filename}</div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: 0%"></div>
-                </div>
-            </div>
-            <span class="progress-text">0%</span>
-        </div>
-    `;
-    area.appendChild(div);
-    area.scrollTop = area.scrollHeight;
-    return id;
-}
-
-function removeUploadProgress(id) {
-    const el = document.getElementById(id);
-    if (el) el.remove();
-}
-
-function sendMessageWithFile(file) {
-    socket.emit('sendMessage', {
-        chatId: currentChatId,
-        senderId: currentUser.id,
-        text: '',
-        file: file
-    });
-}
-
-function showFilePreview(url) {
-    const modal = document.getElementById('filePreviewModal');
-    const content = document.getElementById('filePreviewContent');
-    
-    const isImage = url.match(/\.(jpg|jpeg|png|gif|bmp|webp|svg)/i);
-    
-    if (isImage) {
-        content.innerHTML = `<img src="${url}" alt="Preview" onclick="window.open('${url}', '_blank')">`;
-    } else {
-        content.innerHTML = `
-            <div class="file-preview-info">
-                <i class="fas fa-file"></i>
-                <p>Предпросмотр недоступен</p>
-                <button onclick="window.open('${url}', '_blank')" class="auth-btn" style="margin-top: 12px;">
-                    <i class="fas fa-download"></i> Скачать
-                </button>
-            </div>
-        `;
-    }
-    
-    modal.classList.add('show');
-}
-
-function closeFilePreview() {
-    document.getElementById('filePreviewModal').classList.remove('show');
-}
-
-function downloadFile(url) {
-    window.open(url, '_blank');
 }
 
 // ===== ЭМОДЗИ =====
@@ -793,13 +608,15 @@ function downloadFile(url) {
 function initEmojiPanel() {
     const grid = document.getElementById('emojiGrid');
     grid.innerHTML = '';
-    
     EMOJIS.forEach(emoji => {
         const btn = document.createElement('button');
         btn.className = 'emoji-item';
         btn.textContent = emoji;
         btn.addEventListener('click', () => {
-            insertEmoji(emoji);
+            const input = document.getElementById('messageInput');
+            input.value += emoji;
+            input.focus();
+            document.getElementById('emojiPanel').style.display = 'none';
         });
         grid.appendChild(btn);
     });
@@ -808,16 +625,6 @@ function initEmojiPanel() {
 function toggleEmojiPanel() {
     const panel = document.getElementById('emojiPanel');
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-}
-
-function insertEmoji(emoji) {
-    const input = document.getElementById('messageInput');
-    const start = input.selectionStart;
-    const end = input.selectionEnd;
-    input.value = input.value.substring(0, start) + emoji + input.value.substring(end);
-    input.focus();
-    input.selectionStart = input.selectionEnd = start + emoji.length;
-    document.getElementById('emojiPanel').style.display = 'none';
 }
 
 // ===== ОТПРАВКА =====
@@ -847,13 +654,7 @@ function showCreateChat(type) {
     document.getElementById('chatDescriptionInput').value = '';
     document.getElementById('memberSearchInput').value = '';
     document.getElementById('membersList').innerHTML = '';
-    
-    if (type === 'channel') {
-        document.getElementById('addMembersArea').style.display = 'none';
-    } else {
-        document.getElementById('addMembersArea').style.display = 'block';
-    }
-    
+    document.getElementById('addMembersArea').style.display = type === 'channel' ? 'none' : 'block';
     document.getElementById('createChatModal').classList.add('show');
 }
 
@@ -867,16 +668,8 @@ async function addMemberByUsername() {
     
     const results = await api.searchUsers(username, currentUser.id);
     const user = results.find(u => u.username === username);
-    
-    if (!user) {
-        showToast('Пользователь не найден', 'error');
-        return;
-    }
-    
-    if (selectedMembers.includes(user.id)) {
-        showToast('Уже добавлен', 'info');
-        return;
-    }
+    if (!user) { showToast('Пользователь не найден', 'error'); return; }
+    if (selectedMembers.includes(user.id)) { showToast('Уже добавлен', 'info'); return; }
     
     selectedMembers.push(user.id);
     document.getElementById('memberSearchInput').value = '';
@@ -888,31 +681,23 @@ function renderMembersList() {
     container.innerHTML = selectedMembers.map(id => `
         <span class="member-tag">
             ${id}
-            <span class="remove-member" onclick="removeMember('${id}')">&times;</span>
+            <span class="remove-member" onclick="selectedMembers=selectedMembers.filter(i=>i!=='${id}');renderMembersList();">&times;</span>
         </span>
     `).join('');
-}
-
-function removeMember(userId) {
-    selectedMembers = selectedMembers.filter(id => id !== userId);
-    renderMembersList();
 }
 
 async function createChat() {
     const name = document.getElementById('chatNameInput').value.trim();
     const description = document.getElementById('chatDescriptionInput').value.trim();
-    
     if (!name) { showToast('Введите название', 'error'); return; }
     
-    const data = {
-        name: name,
+    const result = await api.createChat({
+        name,
         type: createChatType,
         createdBy: currentUser.id,
         description: description || null,
         participants: createChatType === 'channel' ? [] : selectedMembers
-    };
-    
-    const result = await api.createChat(data);
+    });
     
     if (result.error) {
         showToast(result.error, 'error');
@@ -945,15 +730,8 @@ async function addContact() {
     if (!phone || phone.length < 10) { showToast('Введите номер', 'error'); return; }
 
     const user = await api.findUserByPhone(phone);
-    if (!user) {
-        showToast('Пользователь не найден', 'error');
-        return;
-    }
-
-    if (user.id === currentUser.id) {
-        showToast('Нельзя добавить себя', 'error');
-        return;
-    }
+    if (!user) { showToast('Пользователь не найден', 'error'); return; }
+    if (user.id === currentUser.id) { showToast('Нельзя добавить себя', 'error'); return; }
 
     const result = await api.addContact(currentUser.id, user.id);
     showToast(`✅ Контакт ${user.name} добавлен!`, 'success');
@@ -966,33 +744,29 @@ async function addContact() {
 
 document.getElementById('sendBtn').addEventListener('click', sendMessage);
 document.getElementById('messageInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendMessage();
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
 });
 
 document.getElementById('mobileBack').addEventListener('click', () => {
     document.getElementById('rightPanel').classList.remove('active-mobile');
 });
 
-document.getElementById('addContactModal').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closeModal();
-});
-
-document.getElementById('settingsModal').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closeSettings();
-});
-
-document.getElementById('createChatModal').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closeCreateChat();
-});
-
 document.getElementById('emojiBtn').addEventListener('click', toggleEmojiPanel);
-
 document.getElementById('fileInput').addEventListener('change', (e) => {
-    const files = e.target.files;
-    if (files.length > 0) {
-        uploadFiles(files);
-    }
+    uploadFiles(e.target.files);
     e.target.value = '';
+});
+
+// Закрытие модалок по клику вне
+document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('show');
+        }
+    });
 });
 
 // ===== КОД ПОДТВЕРЖДЕНИЯ =====
@@ -1001,13 +775,8 @@ document.querySelectorAll('.code-input').forEach((input, index, arr) => {
     input.addEventListener('input', (e) => {
         if (e.target.value) {
             e.target.classList.add('filled');
-            if (index < arr.length - 1) {
-                arr[index + 1].focus();
-            } else {
-                setTimeout(verifyCode, 300);
-            }
-        } else {
-            e.target.classList.remove('filled');
+            if (index < arr.length - 1) arr[index + 1].focus();
+            else setTimeout(verifyCode, 300);
         }
     });
     input.addEventListener('keydown', (e) => {
@@ -1033,16 +802,15 @@ function showToast(text, type = 'info', duration = 3000) {
     setTimeout(() => toast.remove(), duration);
 }
 
-// ===== ЗАПУСК =====
+// ===== ИНИЦИАЛИЗАЦИЯ =====
 
 initEmojiPanel();
 
-// Восстанавливаем сессию при загрузке
+// Восстанавливаем сессию
 restoreSession().then(restored => {
     if (!restored) {
-        console.log('🔐 Сессия не восстановлена, показываем вход');
+        console.log('🔐 Сессия не восстановлена');
     }
 });
 
-console.log('✅ Telegram Social Network готова к работе!');
-console.log('📢 Добавлены: настройки, аватарки, username, поиск, каналы, группы, сессии!');
+console.log('✅ Telegram Social Network готова!');

@@ -14,47 +14,11 @@ if (!fs.existsSync(dataDir)) {
 const dbPath = path.join(dataDir, 'database.sqlite');
 console.log('📄 Путь к БД:', dbPath);
 
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('❌ Ошибка открытия БД:', err.message);
-        process.exit(1);
-    }
-    console.log('✅ База данных открыта');
-});
+const db = new sqlite3.Database(dbPath);
 
-// ===== МИГРАЦИЯ: ДОБАВЛЯЕМ НЕДОСТАЮЩИЕ КОЛОНКИ =====
+// ===== СОЗДАЁМ ВСЕ ТАБЛИЦЫ =====
 db.serialize(() => {
-    // Проверяем и добавляем колонку username
-    db.run(`ALTER TABLE users ADD COLUMN username TEXT`, (err) => {
-        if (err && !err.message.includes('duplicate column name')) {
-            console.log('⚠️ username уже существует или ошибка:', err.message);
-        } else if (!err) {
-            console.log('✅ Добавлена колонка username');
-        }
-    });
-
-    // Проверяем и добавляем колонку bio
-    db.run(`ALTER TABLE users ADD COLUMN bio TEXT`, (err) => {
-        if (err && !err.message.includes('duplicate column name')) {
-            console.log('⚠️ bio уже существует или ошибка:', err.message);
-        } else if (!err) {
-            console.log('✅ Добавлена колонка bio');
-        }
-    });
-
-    // Проверяем и добавляем колонку avatar
-    db.run(`ALTER TABLE users ADD COLUMN avatar TEXT`, (err) => {
-        if (err && !err.message.includes('duplicate column name')) {
-            console.log('⚠️ avatar уже существует или ошибка:', err.message);
-        } else if (!err) {
-            console.log('✅ Добавлена колонка avatar');
-        }
-    });
-});
-
-// ===== СОЗДАЁМ ТАБЛИЦЫ =====
-db.serialize(() => {
-    // Пользователи (с полной структурой)
+    // Пользователи
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -70,6 +34,7 @@ db.serialize(() => {
         )
     `);
 
+    // Коды подтверждения
     db.run(`
         CREATE TABLE IF NOT EXISTS verifications (
             phone TEXT PRIMARY KEY,
@@ -78,6 +43,7 @@ db.serialize(() => {
         )
     `);
 
+    // Чаты
     db.run(`
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
@@ -92,6 +58,7 @@ db.serialize(() => {
         )
     `);
 
+    // Участники чатов
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
@@ -102,6 +69,7 @@ db.serialize(() => {
         )
     `);
 
+    // Сообщения
     db.run(`
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -114,6 +82,7 @@ db.serialize(() => {
         )
     `);
 
+    // Непрочитанные
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
@@ -122,6 +91,7 @@ db.serialize(() => {
         )
     `);
 
+    // Подписчики каналов
     db.run(`
         CREATE TABLE IF NOT EXISTS channel_subscribers (
             channel_id TEXT,
@@ -139,12 +109,8 @@ db.serialize(() => {
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.run(sql, params, function(err) {
-            if (err) {
-                console.error('❌ runQuery ошибка:', err.message);
-                reject(err);
-            } else {
-                resolve(this);
-            }
+            if (err) reject(err);
+            else resolve(this);
         });
     });
 }
@@ -152,12 +118,8 @@ function runQuery(sql, params = []) {
 function getQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.get(sql, params, (err, row) => {
-            if (err) {
-                console.error('❌ getQuery ошибка:', err.message);
-                reject(err);
-            } else {
-                resolve(row);
-            }
+            if (err) reject(err);
+            else resolve(row);
         });
     });
 }
@@ -165,66 +127,42 @@ function getQuery(sql, params = []) {
 function allQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.all(sql, params, (err, rows) => {
-            if (err) {
-                console.error('❌ allQuery ошибка:', err.message);
-                reject(err);
-            } else {
-                resolve(rows);
-            }
+            if (err) reject(err);
+            else resolve(rows);
         });
     });
 }
 
-// ===== КЛАСС ДЛЯ РАБОТЫ С БД =====
+// ===== КЛАСС БАЗЫ ДАННЫХ =====
 
 class Database {
     // ---------- ПОЛЬЗОВАТЕЛИ ----------
     async getUser(phone) {
-        try {
-            return await getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
-        } catch (error) {
-            console.error('getUser error:', error);
-            return null;
-        }
+        return getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
     }
 
     async getUserById(id) {
-        try {
-            return await getQuery('SELECT * FROM users WHERE id = ?', [id]);
-        } catch (error) {
-            console.error('getUserById error:', error);
-            return null;
-        }
+        return getQuery('SELECT * FROM users WHERE id = ?', [id]);
     }
 
     async getUserByUsername(username) {
-        try {
-            return await getQuery('SELECT * FROM users WHERE username = ?', [username]);
-        } catch (error) {
-            console.error('getUserByUsername error:', error);
-            return null;
-        }
+        return getQuery('SELECT * FROM users WHERE username = ?', [username]);
     }
 
     async searchUsers(query) {
-        try {
-            return await allQuery(
-                `SELECT * FROM users WHERE 
-                 name LIKE ? OR phone LIKE ? OR username LIKE ? 
-                 ORDER BY name ASC LIMIT 20`,
-                [`%${query}%`, `%${query}%`, `%${query}%`]
-            );
-        } catch (error) {
-            console.error('searchUsers error:', error);
-            return [];
-        }
+        return allQuery(
+            `SELECT * FROM users WHERE 
+             name LIKE ? OR phone LIKE ? OR username LIKE ? 
+             ORDER BY name ASC LIMIT 20`,
+            [`%${query}%`, `%${query}%`, `%${query}%`]
+        );
     }
 
     async createUser(user) {
         await runQuery(
             `INSERT INTO users (id, name, username, phone, password, avatar, bio, verified, online, created_at) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [user.id, user.name, user.username || null, user.phone, user.password, 
+            [user.id, user.name, user.username, user.phone, user.password, 
              user.avatar || null, user.bio || null, 0, 0, new Date().toISOString()]
         );
         return user;
@@ -234,17 +172,14 @@ class Database {
         const fields = [];
         const values = [];
         for (const [key, value] of Object.entries(data)) {
-            if (value !== undefined && value !== null) {
+            if (value !== undefined) {
                 fields.push(`${key} = ?`);
                 values.push(value);
             }
         }
+        if (fields.length === 0) return;
         values.push(id);
-        await runQuery(
-            `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
-            values
-        );
-        console.log('✅ Обновлены поля:', fields.join(', '));
+        await runQuery(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
     }
 
     async verifyUser(phone) {
@@ -284,22 +219,12 @@ class Database {
         for (const chat of chats) {
             chat.participants = await this.getChatParticipants(chat.id);
             chat.unread = await this.getUnreadCount(chat.id, userId);
-            if (chat.type === 'channel') {
-                chat.subscribers = await this.getChannelSubscribers(chat.id);
-            }
         }
         return chats;
     }
 
     async getChat(chatId) {
-        const chat = await getQuery('SELECT * FROM chats WHERE id = ?', [chatId]);
-        if (chat) {
-            chat.participants = await this.getChatParticipants(chatId);
-            if (chat.type === 'channel') {
-                chat.subscribers = await this.getChannelSubscribers(chatId);
-            }
-        }
-        return chat;
+        return getQuery('SELECT * FROM chats WHERE id = ?', [chatId]);
     }
 
     async getChatByUsers(user1, user2) {
@@ -316,16 +241,16 @@ class Database {
         return null;
     }
 
-    async createChat(participants, name = null, type = 'private', createdBy = null, description = null, avatar = null) {
+    async createChat(participants, name = null, type = 'private', createdBy = null, description = null) {
         const chatId = Date.now().toString();
         await runQuery(
-            `INSERT INTO chats (id, name, type, avatar, description, created_by, created_at, last_message, last_message_time) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [chatId, name, type, avatar || null, description || null, createdBy, new Date().toISOString(), null, null]
+            `INSERT INTO chats (id, name, type, description, created_by, created_at, last_message, last_message_time) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [chatId, name, type, description || null, createdBy, new Date().toISOString(), null, null]
         );
         
         for (const userId of participants) {
-            const role = userId === createdBy ? 'admin' : (type === 'channel' ? 'subscriber' : 'member');
+            const role = userId === createdBy ? 'admin' : 'member';
             await runQuery(
                 `INSERT INTO chat_participants (chat_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)`,
                 [chatId, userId, role, new Date().toISOString()]
@@ -343,50 +268,18 @@ class Database {
         return rows;
     }
 
-    async addParticipant(chatId, userId, role = 'member') {
+    async addParticipant(chatId, userId) {
         await runQuery(
             `INSERT OR REPLACE INTO chat_participants (chat_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)`,
-            [chatId, userId, role, new Date().toISOString()]
+            [chatId, userId, 'member', new Date().toISOString()]
         );
-    }
-
-    async removeParticipant(chatId, userId) {
-        await runQuery(
-            `DELETE FROM chat_participants WHERE chat_id = ? AND user_id = ?`,
-            [chatId, userId]
-        );
-    }
-
-    // ---------- КАНАЛЫ ----------
-    async getChannelSubscribers(channelId) {
-        const rows = await allQuery(
-            `SELECT user_id FROM channel_subscribers WHERE channel_id = ?`,
-            [channelId]
-        );
-        return rows.map(row => row.user_id);
-    }
-
-    async subscribeToChannel(channelId, userId) {
-        await runQuery(
-            `INSERT OR REPLACE INTO channel_subscribers (channel_id, user_id, subscribed_at) VALUES (?, ?, ?)`,
-            [channelId, userId, new Date().toISOString()]
-        );
-        await this.addParticipant(channelId, userId, 'subscriber');
-    }
-
-    async unsubscribeFromChannel(channelId, userId) {
-        await runQuery(
-            `DELETE FROM channel_subscribers WHERE channel_id = ? AND user_id = ?`,
-            [channelId, userId]
-        );
-        await this.removeParticipant(channelId, userId);
     }
 
     // ---------- СООБЩЕНИЯ ----------
-    async getMessages(chatId, limit = 100) {
+    async getMessages(chatId) {
         return allQuery(
-            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC LIMIT ?`,
-            [chatId, limit]
+            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC`,
+            [chatId]
         );
     }
 
@@ -408,15 +301,12 @@ class Database {
             }
         }
         
-        await this.updateChatLastMessage(message.chat_id, message);
-        return message;
-    }
-
-    async updateChatLastMessage(chatId, message) {
         await runQuery(
             `UPDATE chats SET last_message = ?, last_message_time = ? WHERE id = ?`,
-            [message.text || '[Файл]', message.created_at, chatId]
+            [message.text || '[Файл]', message.created_at, message.chat_id]
         );
+        
+        return message;
     }
 
     async markAllChatMessagesAsRead(chatId, userId) {
@@ -435,6 +325,15 @@ class Database {
             [chatId, userId]
         );
         return result ? result.count : 0;
+    }
+
+    // ---------- КАНАЛЫ ----------
+    async subscribeToChannel(channelId, userId) {
+        await runQuery(
+            `INSERT OR REPLACE INTO channel_subscribers (channel_id, user_id, subscribed_at) VALUES (?, ?, ?)`,
+            [channelId, userId, new Date().toISOString()]
+        );
+        await this.addParticipant(channelId, userId);
     }
 }
 
