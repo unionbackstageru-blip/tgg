@@ -68,7 +68,7 @@ db.serialize(() => {
         else console.log('✅ Таблица chats');
     });
 
-    // Участники
+    // Участники чатов
     db.run(`
         CREATE TABLE IF NOT EXISTS chat_participants (
             chat_id TEXT,
@@ -96,7 +96,7 @@ db.serialize(() => {
         else console.log('✅ Таблица messages');
     });
 
-    // Непрочитанные
+    // Непрочитанные сообщения
     db.run(`
         CREATE TABLE IF NOT EXISTS unread_messages (
             message_id TEXT,
@@ -111,7 +111,7 @@ db.serialize(() => {
     console.log('✅ Все таблицы созданы');
 });
 
-// ===== ФУНКЦИИ ДЛЯ РАБОТЫ С БД =====
+// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -157,11 +157,21 @@ function allQuery(sql, params = []) {
 class Database {
     // ---------- ПОЛЬЗОВАТЕЛИ ----------
     async getUser(phone) {
-        return getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
+        try {
+            return await getQuery('SELECT * FROM users WHERE phone = ?', [phone]);
+        } catch (error) {
+            console.error('getUser error:', error);
+            return null;
+        }
     }
 
     async getUserById(id) {
-        return getQuery('SELECT * FROM users WHERE id = ?', [id]);
+        try {
+            return await getQuery('SELECT * FROM users WHERE id = ?', [id]);
+        } catch (error) {
+            console.error('getUserById error:', error);
+            return null;
+        }
     }
 
     async createUser(user) {
@@ -181,7 +191,7 @@ class Database {
         await runQuery('UPDATE users SET online = ? WHERE id = ?', [online ? 1 : 0, userId]);
     }
 
-    // ---------- ВЕРИФИКАЦИЯ ----------
+    // ---------- ВЕРИФИКАЦИЯ (ЭТИ МЕТОДЫ БЫЛИ ПРОПУЩЕНЫ!) ----------
     async saveVerification(phone, code, expires) {
         await runQuery(
             `INSERT OR REPLACE INTO verifications (phone, code, expires) VALUES (?, ?, ?)`,
@@ -299,11 +309,10 @@ class Database {
         return message;
     }
 
-    async markAllChatMessagesAsRead(chatId, userId) {
+    async markAsRead(messageId, userId) {
         await runQuery(
-            `DELETE FROM unread_messages WHERE message_id IN 
-             (SELECT id FROM messages WHERE chat_id = ?) AND user_id = ?`,
-            [chatId, userId]
+            `DELETE FROM unread_messages WHERE message_id = ? AND user_id = ?`,
+            [messageId, userId]
         );
     }
 
@@ -315,6 +324,14 @@ class Database {
             [chatId, userId]
         );
         return result ? result.count : 0;
+    }
+
+    async markAllChatMessagesAsRead(chatId, userId) {
+        await runQuery(
+            `DELETE FROM unread_messages WHERE message_id IN 
+             (SELECT id FROM messages WHERE chat_id = ?) AND user_id = ?`,
+            [chatId, userId]
+        );
     }
 }
 
