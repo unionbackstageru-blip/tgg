@@ -981,3 +981,77 @@ body {
     border-radius: 50%;
     object-fit: cover;
 }
+/* ===== ФОТО И ФАЙЛЫ ===== */
+.photo-attachment {
+    position: relative;
+    display: inline-block;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.photo-attachment .file-preview-image {
+    max-width: 300px;
+    max-height: 250px;
+    border-radius: 10px;
+    display: block;
+    transition: filter 0.2s;
+}
+
+.photo-attachment:hover .file-preview-image {
+    filter: brightness(0.8);
+}
+
+.photo-attachment .photo-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+}
+
+.photo-attachment:hover .photo-overlay {
+    opacity: 1;
+}
+
+.photo-attachment .photo-overlay i {
+    color: #fff;
+    font-size: 32px;
+}
+
+.video-attachment {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.video-attachment video {
+    max-width: 300px;
+    max-height: 200px;
+    border-radius: 10px;
+    background: #000;
+}
+
+/* ===== АВАТАРКА В ПРОФИЛЕ ===== */
+#profileViewAvatar {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+#profileViewAvatarText {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    font-weight: 600;
+    color: #fff;
+}

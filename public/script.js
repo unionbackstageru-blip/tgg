@@ -157,7 +157,6 @@ function connectSocket(userId) {
         if (data.chatId === currentChatId) {
             renderMessages(currentChatId);
             api.markAsRead(currentChatId, currentUser.id);
-            // Отмечаем как прочитанное через сокет
             if (socket) {
                 socket.emit('messageRead', { messageId: data.message.id, userId: currentUser.id });
             }
@@ -167,7 +166,6 @@ function connectSocket(userId) {
     
     socket.on('messageStatus', (data) => {
         console.log('📨 Статус сообщения:', data);
-        // Обновляем статус сообщения в интерфейсе
         if (currentChatId) {
             renderMessages(currentChatId);
         }
@@ -624,7 +622,6 @@ async function openChat(chatId) {
     const name = chat.displayName || chat.name || 'Чат';
     const avatar = chat.avatar || null;
     
-    // Сохраняем ID собеседника для просмотра профиля
     if (chat.type === 'private' && chat.participants) {
         const other = chat.participants.find(p => p.user_id !== currentUser.id);
         currentChatUser = other ? other.user_id : null;
@@ -660,6 +657,8 @@ async function openChat(chatId) {
     }
 }
 
+// ===== РЕНДЕР СООБЩЕНИЙ (С ФОТО И ФАЙЛАМИ) =====
+
 async function renderMessages(chatId) {
     const area = document.getElementById('messagesArea');
     if (!area) return;
@@ -685,11 +684,52 @@ async function renderMessages(chatId) {
         div.className = `message ${isSent ? 'sent' : 'received'}`;
         const time = formatTime(msg.created_at);
         
-        let content = msg.text || '';
+        let content = '';
+        
+        // Если есть текст
+        if (msg.text) {
+            content += msg.text;
+        }
+        
+        // Если есть файл
         if (msg.file) {
             try {
                 const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
-                content += renderFile(file);
+                // Проверяем, является ли файл изображением
+                const isImage = file.type && file.type.startsWith('image/');
+                const isVideo = file.type && file.type.startsWith('video/');
+                
+                if (isImage) {
+                    // Изображение с превью
+                    content += `
+                        <div class="file-attachment photo-attachment" onclick="window.open('${file.url}','_blank')">
+                            <img src="${file.url}" class="file-preview-image" alt="${file.name}" loading="lazy">
+                            <div class="photo-overlay">
+                                <i class="fas fa-expand"></i>
+                            </div>
+                        </div>
+                    `;
+                } else if (isVideo) {
+                    // Видео с плеером
+                    content += `
+                        <div class="file-attachment video-attachment">
+                            <video src="${file.url}" controls style="max-width:300px;max-height:200px;border-radius:10px;background:#000;"></video>
+                            <div class="file-name" style="margin-top:4px;font-size:12px;color:#888;">${file.name}</div>
+                        </div>
+                    `;
+                } else {
+                    // Другие файлы
+                    const icon = getFileIcon(file.name);
+                    content += `
+                        <div class="file-attachment" onclick="window.open('${file.url}','_blank')">
+                            <i class="fas fa-${icon}"></i>
+                            <div class="file-info">
+                                <div class="file-name">${file.name}</div>
+                                <div class="file-size">${formatFileSize(file.size)}</div>
+                            </div>
+                        </div>
+                    `;
+                }
             } catch (e) {
                 console.log('Ошибка парсинга файла:', e);
             }
@@ -716,53 +756,81 @@ async function renderMessages(chatId) {
 
 // ===== ФАЙЛЫ =====
 
-function renderFile(file) {
-    const isImage = file.type && file.type.startsWith('image/');
-    if (isImage) {
-        return `<div class="file-attachment"><img src="${file.url}" class="file-preview-image" onclick="window.open('${file.url}','_blank')"></div>`;
-    }
-    return `
-        <div class="file-attachment" onclick="window.open('${file.url}','_blank')">
-            <i class="fas fa-file"></i>
-            <div class="file-info">
-                <div class="file-name">${file.name}</div>
-                <div class="file-size">${formatFileSize(file.size)}</div>
-            </div>
-        </div>
-    `;
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        'pdf': 'file-pdf',
+        'doc': 'file-word',
+        'docx': 'file-word',
+        'xls': 'file-excel',
+        'xlsx': 'file-excel',
+        'ppt': 'file-powerpoint',
+        'pptx': 'file-powerpoint',
+        'txt': 'file-alt',
+        'zip': 'file-archive',
+        'rar': 'file-archive',
+        '7z': 'file-archive',
+        'mp3': 'file-audio',
+        'wav': 'file-audio',
+        'mp4': 'file-video',
+        'avi': 'file-video',
+        'mkv': 'file-video',
+        'json': 'file-code',
+        'js': 'file-code',
+        'html': 'file-code',
+        'css': 'file-code',
+        'xml': 'file-code',
+        'exe': 'file-code'
+    };
+    return icons[ext] || 'file';
 }
 
 function formatFileSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
 }
 
 async function uploadFiles(files) {
-    if (!files || files.length === 0 || !currentChatId) {
+    if (!files || files.length === 0) {
+        showToast('Выберите файлы', 'error');
+        return;
+    }
+    
+    if (!currentChatId) {
         showToast('Выберите чат для отправки файла', 'error');
+        return;
+    }
+    
+    if (!socket) {
+        showToast('⚠️ Нет подключения к серверу', 'error');
         return;
     }
     
     for (const file of files) {
         try {
             showToast(`⏳ Загрузка ${file.name}...`, 'info');
+            
             const result = await api.uploadFile(file);
+            
             if (result.success) {
                 console.log('📤 Отправка файла:', result.file);
-                if (socket) {
-                    socket.emit('sendMessage', {
-                        chatId: currentChatId,
-                        senderId: currentUser.id,
-                        text: '',
-                        file: result.file
-                    });
-                }
+                
+                socket.emit('sendMessage', {
+                    chatId: currentChatId,
+                    senderId: currentUser.id,
+                    text: '',
+                    file: result.file
+                });
+                
                 showToast(`✅ Файл ${file.name} отправлен!`, 'success');
+            } else {
+                showToast(`❌ Ошибка загрузки ${file.name}`, 'error');
             }
         } catch (error) {
             console.error('Upload error:', error);
-            showToast('Ошибка загрузки файла', 'error');
+            showToast(`❌ Ошибка загрузки ${file.name}`, 'error');
         }
     }
 }
@@ -965,7 +1033,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (emojiBtn) emojiBtn.addEventListener('click', toggleEmojiPanel);
     if (fileInput) {
         fileInput.addEventListener('change', (e) => {
-            uploadFiles(e.target.files);
+            const files = e.target.files;
+            if (files && files.length > 0) {
+                uploadFiles(files);
+            }
             e.target.value = '';
         });
     }
@@ -1035,4 +1106,4 @@ restoreSession().then(restored => {
 });
 
 console.log('✅ TeleFon Social Network готова!');
-console.log('📱 Добавлены: статусы сообщений, аватарки, просмотр профиля');
+console.log('📱 Добавлены: статусы сообщений, аватарки, просмотр профиля, фото с превью!');
