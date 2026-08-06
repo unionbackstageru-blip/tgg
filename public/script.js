@@ -142,11 +142,18 @@ const api = {
 
 // ===== WEBSOCKET =====
 function connectSocket(userId) {
-    socket = io(API_URL);
+    socket = io(API_URL, {
+        transports: ['websocket', 'polling']
+    });
     
     socket.on('connect', () => {
         console.log('🔌 WebSocket подключен');
         socket.emit('userOnline', userId);
+    });
+    
+    socket.on('connect_error', (error) => {
+        console.error('❌ WebSocket ошибка:', error);
+        showToast('Ошибка подключения к серверу', 'error');
     });
     
     socket.on('userStatus', () => { renderChats(); });
@@ -358,7 +365,7 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
             img.src = event.target.result;
             img.style.display = 'block';
             document.getElementById('settingsAvatarText').style.display = 'none';
-            // Сохраняем аватар
+            // Сохраняем аватар во временную переменную
             currentUser.avatar = event.target.result;
         };
         reader.readAsDataURL(file);
@@ -436,7 +443,6 @@ async function searchUsers(query) {
             </div>
         `;
         item.addEventListener('click', () => {
-            // Открываем чат с этим пользователем
             document.getElementById('searchInput').value = '';
             renderChats();
             openChatWithUser(user.id);
@@ -490,7 +496,6 @@ function renderChats(filter = '') {
         const time = formatTime(chat.last_message_time);
         const unread = chat.unread || 0;
         
-        // Иконка типа чата
         let typeIcon = '';
         if (chat.type === 'channel') typeIcon = '📢 ';
         else if (chat.type === 'group') typeIcon = '👥 ';
@@ -525,12 +530,7 @@ function getChatName(chat) {
     const participants = chat.participants || [];
     const others = participants.filter(p => p.user_id !== currentUser.id);
     if (others.length === 0) return 'Чат';
-    const user = others[0];
-    if (user && user.user_id) {
-        const contact = allChats.find(c => c.id === chat.id);
-        return 'Собеседник';
-    }
-    return 'Чат';
+    return 'Собеседник';
 }
 
 function getChatAvatar(chat) {
@@ -836,7 +836,6 @@ async function addMemberByUsername() {
     const username = document.getElementById('memberSearchInput').value.trim();
     if (!username) { showToast('Введите username', 'error'); return; }
     
-    // Ищем пользователя
     const results = await api.searchUsers(username, currentUser.id);
     const user = results.find(u => u.username === username);
     
