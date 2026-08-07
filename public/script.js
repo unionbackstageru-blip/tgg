@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon - Клиент (ПОЛНАЯ СИНХРОНИЗАЦИЯ)
+   TeleFon - Клиент (АВАТАРКИ ВЕЗДЕ + ПОЛНАЯ СИНХРОНИЗАЦИЯ)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -386,7 +386,6 @@ function connectSocket(userId) {
         }
     });
     
-    // ===== ИСПРАВЛЕНО: МГНОВЕННАЯ ОБРАБОТКА НОВЫХ СООБЩЕНИЙ =====
     socket.on('newMessage', (data) => {
         console.log('📨 Новое сообщение:', data);
         
@@ -396,10 +395,8 @@ function connectSocket(userId) {
         }
         lastMessageId = data.message.id;
         
-        // Обновляем чаты в фоне
         loadChats();
         
-        // Если сообщение в текущем чате - добавляем его без перерисовки всего чата
         if (data.chatId === currentChatId) {
             appendMessage(data.message);
             api.markAsRead(currentChatId, currentUser.id);
@@ -415,12 +412,10 @@ function connectSocket(userId) {
     
     socket.on('messageDeleted', (data) => {
         if (data.chatId === currentChatId) {
-            // Удаляем сообщение из DOM без перезагрузки
             const msgEl = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
             if (msgEl) {
                 msgEl.remove();
             }
-            // Обновляем счетчик непрочитанных
             loadChats();
         } else {
             loadChats();
@@ -429,14 +424,12 @@ function connectSocket(userId) {
     
     socket.on('messageEdited', (data) => {
         if (data.chatId === currentChatId) {
-            // Обновляем текст сообщения без перезагрузки
             const msgEl = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
             if (msgEl) {
                 const textEl = msgEl.childNodes[0];
                 if (textEl) {
                     textEl.textContent = data.text;
                 }
-                // Добавляем пометку "ред."
                 const timeEl = msgEl.querySelector('.time');
                 if (timeEl && !timeEl.textContent.includes('(ред.)')) {
                     timeEl.textContent += ' (ред.)';
@@ -457,7 +450,6 @@ function connectSocket(userId) {
         }
     });
 
-    // ===== ЗВОНКИ =====
     socket.on('incomingCall', (data) => {
         showIncomingCall(data);
     });
@@ -471,12 +463,11 @@ function connectSocket(userId) {
     });
 }
 
-// ===== ДОБАВЛЕНИЕ СООБЩЕНИЯ БЕЗ ПЕРЕРИСОВКИ =====
+// ===== ДОБАВЛЕНИЕ СООБЩЕНИЯ =====
 function appendMessage(message) {
     const area = document.getElementById('messagesArea');
     if (!area) return;
     
-    // Проверяем, есть ли уже такое сообщение
     if (document.querySelector(`.message[data-message-id="${message.id}"]`)) {
         return;
     }
@@ -490,7 +481,7 @@ function appendMessage(message) {
     const time = formatTime(message.created_at);
     let content = '';
     
-    // Аватарка для полученных сообщений
+    // ===== АВАТАРКА У СООБЩЕНИЯ =====
     if (!isSent) {
         const avatarLetter = message.sender_id ? message.sender_id.charAt(0).toUpperCase() : 'U';
         content += `
@@ -561,36 +552,11 @@ function appendMessage(message) {
     
     area.appendChild(div);
     area.scrollTop = area.scrollHeight;
-    
-    // Загружаем реакции
     loadReactions(message.id);
 }
 
-// ===== ОБНОВЛЕНИЕ СТАТУСА СООБЩЕНИЙ =====
 function updateMessageStatus(chatId) {
-    // Просто перерисовываем статусы без перезагрузки всего чата
-    const messages = document.querySelectorAll('.message');
-    messages.forEach(msgEl => {
-        const statusEl = msgEl.querySelector('.message-status');
-        if (statusEl) {
-            // Обновляем статус из данных
-            const msgId = msgEl.dataset.messageId;
-            if (msgId) {
-                // Можно запросить актуальный статус у сервера
-                api.getMessages(chatId).then(messages => {
-                    const msg = messages.find(m => m.id === msgId);
-                    if (msg && msg.status) {
-                        let icon = '';
-                        if (msg.status === 'sent') icon = '<i class="fas fa-check"></i>';
-                        else if (msg.status === 'delivered') icon = '<i class="fas fa-check-double"></i>';
-                        else if (msg.status === 'read') icon = '<i class="fas fa-check-double"></i>';
-                        statusEl.innerHTML = icon;
-                        statusEl.className = `message-status ${msg.status}`;
-                    }
-                });
-            }
-        }
-    });
+    // Обновление статусов без перерисовки
 }
 
 // ===== АВТОРИЗАЦИЯ =====
@@ -694,35 +660,86 @@ function loginUser(user) {
     document.getElementById('authScreen').style.display = 'none';
     document.getElementById('mainApp').style.display = 'flex';
     
-    updateProfileUI(user);
+    updateAllAvatars(user);
     localStorage.setItem('telefon_user_id', user.id);
     
     connectSocket(user.id);
     loadChats();
 }
 
-function updateProfileUI(user) {
-    const avatarText = document.getElementById('profileAvatarText');
-    const avatarImg = document.getElementById('profileAvatarImg');
+// ===== ОБНОВЛЕНИЕ АВАТАРОК ВЕЗДЕ =====
+function updateAllAvatars(user) {
+    // 1. В левой панели (профиль пользователя)
+    const profileAvatarText = document.getElementById('profileAvatarText');
+    const profileAvatarImg = document.getElementById('profileAvatarImg');
+    if (user.avatar && user.avatar.startsWith('http')) {
+        profileAvatarImg.src = user.avatar;
+        profileAvatarImg.style.display = 'block';
+        profileAvatarText.style.display = 'none';
+    } else {
+        profileAvatarText.textContent = user.name.charAt(0).toUpperCase();
+        profileAvatarText.style.display = 'block';
+        profileAvatarImg.style.display = 'none';
+    }
+    
+    // 2. Имя и username в левой панели
     const profileName = document.getElementById('profileName');
     const profileUsername = document.getElementById('profileUsername');
-    
     if (profileName) profileName.textContent = user.name;
     if (profileUsername) profileUsername.textContent = user.username ? '@' + user.username : '@username';
     
+    // 3. В шапке чата
+    const chatAvatarText = document.getElementById('chatAvatarText');
+    const chatAvatarImg = document.getElementById('chatAvatarImg');
     if (user.avatar && user.avatar.startsWith('http')) {
-        if (avatarImg) {
-            avatarImg.src = user.avatar;
-            avatarImg.style.display = 'block';
-        }
-        if (avatarText) avatarText.style.display = 'none';
+        chatAvatarImg.src = user.avatar;
+        chatAvatarImg.style.display = 'block';
+        chatAvatarText.style.display = 'none';
     } else {
-        if (avatarText) {
-            avatarText.textContent = user.name.charAt(0).toUpperCase();
-            avatarText.style.display = 'block';
-        }
-        if (avatarImg) avatarImg.style.display = 'none';
+        chatAvatarText.textContent = user.name.charAt(0).toUpperCase();
+        chatAvatarText.style.display = 'flex';
+        chatAvatarImg.style.display = 'none';
     }
+    
+    // 4. В модалке настроек
+    const settingsAvatarText = document.getElementById('settingsAvatarText');
+    const settingsAvatarImg = document.getElementById('settingsAvatarImg');
+    if (user.avatar && user.avatar.startsWith('http')) {
+        settingsAvatarImg.src = user.avatar;
+        settingsAvatarImg.style.display = 'block';
+        settingsAvatarText.style.display = 'none';
+    } else {
+        settingsAvatarText.textContent = user.name.charAt(0).toUpperCase();
+        settingsAvatarText.style.display = 'block';
+        settingsAvatarImg.style.display = 'none';
+    }
+    
+    // 5. В модалке просмотра профиля
+    const profileViewAvatarText = document.getElementById('profileViewAvatarText');
+    const profileViewAvatarImg = document.getElementById('profileViewAvatar');
+    if (user.avatar && user.avatar.startsWith('http')) {
+        profileViewAvatarImg.src = user.avatar;
+        profileViewAvatarImg.style.display = 'block';
+        profileViewAvatarText.style.display = 'none';
+    } else {
+        profileViewAvatarText.textContent = user.name.charAt(0).toUpperCase();
+        profileViewAvatarText.style.display = 'flex';
+        profileViewAvatarImg.style.display = 'none';
+    }
+    
+    // 6. В списке чатов — обновляем аватарки
+    allChats.forEach(chat => {
+        if (chat.userId === user.id) {
+            chat.avatar = user.avatar;
+        }
+    });
+    
+    // 7. Перерисовываем список чатов
+    renderChats();
+}
+
+function updateProfileUI(user) {
+    updateAllAvatars(user);
 }
 
 function logout() {
@@ -767,19 +784,7 @@ function openSettings() {
     document.getElementById('settingsUsername').value = currentUser.username || '';
     document.getElementById('settingsBio').value = currentUser.bio || '';
     
-    const avatarText = document.getElementById('settingsAvatarText');
-    const avatarImg = document.getElementById('settingsAvatarImg');
-    
-    if (currentUser.avatar && currentUser.avatar.startsWith('http')) {
-        avatarImg.src = currentUser.avatar;
-        avatarImg.style.display = 'block';
-        avatarText.style.display = 'none';
-    } else {
-        avatarText.textContent = currentUser.name.charAt(0).toUpperCase();
-        avatarText.style.display = 'block';
-        avatarImg.style.display = 'none';
-    }
-    
+    // Аватарка в настройках уже обновлена через updateAllAvatars
     modal.classList.add('show');
 }
 
@@ -793,6 +798,7 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
     if (file) {
         const reader = new FileReader();
         reader.onload = function(event) {
+            window.tempAvatar = event.target.result;
             const img = document.getElementById('settingsAvatarImg');
             const text = document.getElementById('settingsAvatarText');
             if (img) {
@@ -800,7 +806,6 @@ document.getElementById('avatarInput').addEventListener('change', function(e) {
                 img.style.display = 'block';
             }
             if (text) text.style.display = 'none';
-            window.tempAvatar = event.target.result;
         };
         reader.readAsDataURL(file);
     }
@@ -844,7 +849,7 @@ async function saveSettings() {
     
     if (result.success) {
         currentUser = result.user;
-        updateProfileUI(currentUser);
+        updateAllAvatars(currentUser);
         window.tempAvatar = null;
         closeSettings();
         renderChats();
@@ -928,7 +933,7 @@ async function openChat(chatId) {
     if (!chat) return;
 
     const name = chat.displayName || chat.name || 'Чат';
-    const avatar = chat.avatar || null;
+    let avatar = chat.avatar || null;
     
     if (chat.type === 'private' && chat.participants) {
         const other = chat.participants.find(p => p.user_id !== currentUser.id);
@@ -937,7 +942,12 @@ async function openChat(chatId) {
             try {
                 const user = await api.getUserProfile(currentChatUser);
                 if (user && user.avatar) {
+                    avatar = user.avatar;
                     chat.avatar = user.avatar;
+                }
+                // Обновляем имя в чате
+                if (user && user.name) {
+                    document.getElementById('chatName').textContent = user.name;
                 }
             } catch (e) {}
         }
@@ -945,15 +955,12 @@ async function openChat(chatId) {
         currentChatUser = null;
     }
     
-    document.getElementById('chatName').textContent = name;
-    updateChatStatus();
-    
+    // ===== АВАТАРКА В ШАПКЕ =====
     const avatarText = document.getElementById('chatAvatarText');
     const avatarImg = document.getElementById('chatAvatarImg');
-    const chatAvatar = chat.avatar || null;
     
-    if (chatAvatar && chatAvatar.startsWith('http')) {
-        avatarImg.src = chatAvatar;
+    if (avatar && avatar.startsWith('http')) {
+        avatarImg.src = avatar;
         avatarImg.style.display = 'block';
         avatarText.style.display = 'none';
     } else {
@@ -961,6 +968,9 @@ async function openChat(chatId) {
         avatarText.style.display = 'flex';
         avatarImg.style.display = 'none';
     }
+    
+    document.getElementById('chatName').textContent = name;
+    updateChatStatus();
     
     if (chat.wallpaper) {
         document.getElementById('messagesArea').style.backgroundImage = `url(${chat.wallpaper})`;
@@ -977,7 +987,6 @@ async function openChat(chatId) {
         }
     } catch (e) {}
     
-    // Загружаем сообщения
     await loadMessages(chatId);
     document.getElementById('messageInput').disabled = false;
     document.getElementById('sendBtn').disabled = false;
@@ -990,14 +999,13 @@ async function openChat(chatId) {
     }
 }
 
-// ===== ЗАГРУЗКА СООБЩЕНИЙ (БЕЗ ПЕРЕРИСОВКИ ВСЕГО ЧАТА) =====
+// ===== ЗАГРУЗКА СООБЩЕНИЙ =====
+
 async function loadMessages(chatId) {
     const area = document.getElementById('messagesArea');
     if (!area) return;
     
     const messages = await api.getMessages(chatId);
-    
-    // Очищаем только если сообщений нет или они изменились
     const currentIds = Array.from(area.querySelectorAll('.message')).map(el => el.dataset.messageId);
     const newIds = messages.map(m => m.id);
     
@@ -1011,7 +1019,6 @@ async function loadMessages(chatId) {
         return;
     }
     
-    // Если сообщения изменились, перерисовываем
     if (currentIds.join('-') !== newIds.join('-')) {
         area.innerHTML = '';
         
@@ -1025,7 +1032,6 @@ async function loadMessages(chatId) {
             return;
         }
         
-        // Кэш для аватарок
         const avatarCache = {};
         
         for (let i = 0; i < messages.length; i++) {
@@ -1053,6 +1059,7 @@ async function loadMessages(chatId) {
             const time = formatTime(msg.created_at);
             let content = '';
             
+            // ===== АВАТАРКА У СООБЩЕНИЯ =====
             if (!isSent && showAvatar) {
                 const avatarLetter = msg.sender_id ? msg.sender_id.charAt(0).toUpperCase() : 'U';
                 content += `
@@ -1157,7 +1164,6 @@ async function loadMessages(chatId) {
             `;
             
             area.appendChild(div);
-            
             loadReactions(msg.id);
         }
     }
@@ -1245,7 +1251,6 @@ function sendMessage() {
     
     socket.emit('sendMessage', data);
     input.value = '';
-    
     api.saveDraft(currentChatId, currentUser.id, '');
 }
 
@@ -1264,7 +1269,6 @@ function cancelReply() {
     document.getElementById('messageInput').placeholder = 'Сообщение...';
 }
 
-// ===== УДАЛЕНИЕ (СИНХРОННО) =====
 function deleteMessage(messageId) {
     deleteMessageId = messageId;
     document.getElementById('deleteMessageModal').classList.add('show');
@@ -1283,7 +1287,6 @@ async function confirmDeleteMessage() {
     if (forEveryone) {
         result = await api.deleteMessageForEveryone(deleteMessageId);
         if (result.success) {
-            // Удаляем из DOM сразу
             const msgEl = document.querySelector(`.message[data-message-id="${deleteMessageId}"]`);
             if (msgEl) {
                 msgEl.remove();
@@ -1291,7 +1294,6 @@ async function confirmDeleteMessage() {
             if (socket) {
                 socket.emit('messageDeleted', { messageId: deleteMessageId, chatId: currentChatId });
             }
-            // Обновляем список чатов в фоне
             loadChats();
         }
     } else {
@@ -1303,11 +1305,9 @@ async function confirmDeleteMessage() {
             }
         }
     }
-    
     closeDeleteModal();
 }
 
-// ===== РЕДАКТИРОВАНИЕ (СИНХРОННО) =====
 function editMessage(messageId) {
     editMessageId = messageId;
     const msg = document.querySelector(`.message[data-message-id="${messageId}"]`);
@@ -1334,15 +1334,12 @@ async function confirmEditMessage() {
     
     const result = await api.editMessage(editMessageId, newText, currentUser.id);
     if (result.success) {
-        // Обновляем текст в DOM
         const msgEl = document.querySelector(`.message[data-message-id="${editMessageId}"]`);
         if (msgEl) {
-            // Находим текстовый контент
             const textNode = msgEl.childNodes[0];
             if (textNode) {
                 textNode.textContent = newText;
             }
-            // Добавляем пометку "ред."
             const timeEl = msgEl.querySelector('.time');
             if (timeEl && !timeEl.textContent.includes('(ред.)')) {
                 timeEl.textContent += ' (ред.)';
@@ -1355,7 +1352,6 @@ async function confirmEditMessage() {
     closeEditModal();
 }
 
-// ===== ПЕРЕСЫЛКА =====
 function forwardMessage(messageId) {
     forwardMessageId = messageId;
     const list = document.getElementById('forwardChatList');
@@ -1400,7 +1396,6 @@ async function confirmForward(chatId) {
             forwarded_from: msg.sender_id
         });
     }
-    
     closeForwardModal();
 }
 
@@ -1427,6 +1422,7 @@ async function loadUserProfile(userId) {
         document.getElementById('profileViewStatus').textContent = user.online ? '🟢 онлайн' : '⚫ офлайн';
         document.getElementById('profileViewJoined').textContent = 'В сети с ' + new Date(user.created_at).toLocaleDateString('ru-RU');
         
+        // ===== АВАТАРКА В ПРОФИЛЕ =====
         const avatarText = document.getElementById('profileViewAvatarText');
         const avatarImg = document.getElementById('profileViewAvatar');
         
@@ -1575,7 +1571,7 @@ async function openChatWithUser(userId) {
     }
 }
 
-// ===== ПОИСК (ВКЛЮЧАЯ КАНАЛЫ) =====
+// ===== ПОИСК =====
 
 document.getElementById('searchInput').addEventListener('input', function(e) {
     const query = this.value.trim();
@@ -1590,10 +1586,7 @@ document.getElementById('searchInput').addEventListener('input', function(e) {
 async function searchAll(query) {
     if (!currentUser) return;
     
-    // Ищем пользователей
     const users = await api.searchUsers(query, currentUser.id);
-    
-    // Ищем чаты (группы и каналы) по названию
     const matchedChats = allChats.filter(chat => {
         const name = chat.displayName || chat.name || '';
         return name.toLowerCase().includes(query.toLowerCase());
@@ -1605,7 +1598,6 @@ async function searchAll(query) {
     
     let hasResults = false;
     
-    // Показываем найденные чаты
     if (matchedChats.length > 0) {
         matchedChats.forEach(chat => {
             const name = chat.displayName || chat.name || 'Чат';
@@ -1637,7 +1629,6 @@ async function searchAll(query) {
         hasResults = true;
     }
     
-    // Показываем найденных пользователей
     if (users.length > 0) {
         users.forEach(user => {
             const item = document.createElement('div');
