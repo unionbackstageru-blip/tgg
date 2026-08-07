@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon - Клиент (ПОЛНАЯ ВЕРСИЯ С СИНХРОНИЗАЦИЕЙ)
+   TeleFon - Клиент (ПОЛНАЯ ВЕРСИЯ С АВАТАРКАМИ И ЗВОНКАМИ)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -19,6 +19,21 @@ let recordingStartTime = null;
 let recordingTimer = null;
 let voiceDuration = 0;
 let lastMessageId = null;
+
+// ===== ПЕРЕМЕННЫЕ ДЛЯ ЗВОНКОВ =====
+let localStream = null;
+let remoteStream = null;
+let peerConnection = null;
+let isCallActive = false;
+let currentCallId = null;
+let callType = 'audio';
+
+const configuration = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+};
 
 // ===== ПЕРЕМЕННЫЕ ДЛЯ ДИАЛОГОВ =====
 let deleteMessageId = null;
@@ -291,7 +306,6 @@ function getFileIcon(filename) {
 
 // ===== УБИРАЕМ ВСЕ УВЕДОМЛЕНИЯ =====
 function showToast(text, type = 'info', duration = 3000) {
-    // Убираем все уведомления
     return;
 }
 
@@ -382,7 +396,6 @@ function connectSocket(userId) {
         }
         lastMessageId = data.message.id;
         
-        // Обновляем чаты
         loadChats().then(() => {
             if (data.chatId === currentChatId) {
                 renderMessages(currentChatId);
@@ -400,7 +413,6 @@ function connectSocket(userId) {
     
     socket.on('messageDeleted', (data) => {
         if (data.chatId === currentChatId) {
-            // Обновляем список чатов и сообщения
             loadChats().then(() => {
                 renderMessages(currentChatId);
             });
@@ -425,6 +437,19 @@ function connectSocket(userId) {
         if (data.chatId === currentChatId) {
             loadReactions(data.messageId);
         }
+    });
+
+    // ===== СОБЫТИЯ ЗВОНКОВ =====
+    socket.on('incomingCall', (data) => {
+        showIncomingCall(data);
+    });
+
+    socket.on('callAnswer', (data) => {
+        handleCallAnswer(data);
+    });
+
+    socket.on('callEnd', (data) => {
+        endCall(data);
     });
 }
 
@@ -755,6 +780,58 @@ function updateChatStatus() {
     }
 }
 
+// ===== ОБНОВЛЕНИЕ АВАТАРОК ВЕЗДЕ =====
+function updateAllAvatars(user) {
+    // 1. В профиле пользователя (левая панель)
+    const profileAvatarText = document.getElementById('profileAvatarText');
+    const profileAvatarImg = document.getElementById('profileAvatarImg');
+    if (user.avatar && user.avatar.startsWith('http')) {
+        profileAvatarImg.src = user.avatar;
+        profileAvatarImg.style.display = 'block';
+        profileAvatarText.style.display = 'none';
+    } else {
+        profileAvatarText.textContent = user.name.charAt(0).toUpperCase();
+        profileAvatarText.style.display = 'block';
+        profileAvatarImg.style.display = 'none';
+    }
+    
+    // 2. В шапке чата
+    const chatAvatarText = document.getElementById('chatAvatarText');
+    const chatAvatarImg = document.getElementById('chatAvatarImg');
+    if (user.avatar && user.avatar.startsWith('http')) {
+        chatAvatarImg.src = user.avatar;
+        chatAvatarImg.style.display = 'block';
+        chatAvatarText.style.display = 'none';
+    } else {
+        chatAvatarText.textContent = user.name.charAt(0).toUpperCase();
+        chatAvatarText.style.display = 'flex';
+        chatAvatarImg.style.display = 'none';
+    }
+    
+    // 3. В профиле пользователя (модалка)
+    const profileViewAvatarText = document.getElementById('profileViewAvatarText');
+    const profileViewAvatarImg = document.getElementById('profileViewAvatar');
+    if (user.avatar && user.avatar.startsWith('http')) {
+        profileViewAvatarImg.src = user.avatar;
+        profileViewAvatarImg.style.display = 'block';
+        profileViewAvatarText.style.display = 'none';
+    } else {
+        profileViewAvatarText.textContent = user.name.charAt(0).toUpperCase();
+        profileViewAvatarText.style.display = 'flex';
+        profileViewAvatarImg.style.display = 'none';
+    }
+    
+    // 4. В списке чатов — обновляем все чаты где есть этот пользователь
+    allChats.forEach(chat => {
+        if (chat.userId === user.id) {
+            chat.avatar = user.avatar;
+        }
+    });
+    
+    // 5. Перерисовываем список чатов
+    renderChats();
+}
+
 // ===== ОТКРЫТИЕ ЧАТА =====
 
 async function openChat(chatId) {
@@ -816,7 +893,7 @@ async function openChat(chatId) {
     }
 }
 
-// ===== РЕНДЕР СООБЩЕНИЙ =====
+// ===== РЕНДЕР СООБЩЕНИЙ (С АВАТАРКАМИ) =====
 
 async function renderMessages(chatId) {
     const area = document.getElementById('messagesArea');
@@ -843,15 +920,44 @@ async function renderMessages(chatId) {
         return;
     }
 
-    messages.forEach((msg) => {
-        const div = document.createElement('div');
+    // Кэш для аватарок
+    const avatarCache = {};
+    
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
         const isSent = msg.sender_id === currentUser.id;
+        const showAvatar = !isSent && (i === 0 || messages[i - 1].sender_id !== msg.sender_id);
         
+        // Получаем аватарку отправителя
+        let senderAvatar = null;
+        if (!isSent && showAvatar) {
+            if (!avatarCache[msg.sender_id]) {
+                try {
+                    const user = await api.getUserProfile(msg.sender_id);
+                    avatarCache[msg.sender_id] = user ? user.avatar : null;
+                } catch (e) {
+                    avatarCache[msg.sender_id] = null;
+                }
+            }
+            senderAvatar = avatarCache[msg.sender_id];
+        }
+        
+        const div = document.createElement('div');
         div.className = `message ${isSent ? 'sent' : 'received'}`;
         div.dataset.messageId = msg.id;
         
         const time = formatTime(msg.created_at);
         let content = '';
+        
+        // Аватарка для received сообщений
+        if (!isSent && showAvatar) {
+            const avatarLetter = msg.sender_id ? msg.sender_id.charAt(0).toUpperCase() : 'U';
+            content += `
+                <div class="message-avatar" style="position:absolute;bottom:-4px;left:-32px;width:28px;height:28px;border-radius:50%;background:#3a3a3a;overflow:hidden;border:2px solid #1a1a1a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;">
+                    ${senderAvatar ? `<img src="${senderAvatar}" style="width:100%;height:100%;object-fit:cover;">` : avatarLetter}
+                </div>
+            `;
+        }
         
         if (msg.reply_to) {
             content += `<div class="reply-to">↩️ Ответ</div>`;
@@ -952,7 +1058,7 @@ async function renderMessages(chatId) {
         area.appendChild(div);
         
         loadReactions(msg.id);
-    });
+    }
 
     area.scrollTop = area.scrollHeight;
 }
@@ -1056,7 +1162,7 @@ function cancelReply() {
     document.getElementById('messageInput').placeholder = 'Сообщение...';
 }
 
-// ===== УДАЛЕНИЕ С ДИАЛОГОМ (СИНХРОННО) =====
+// ===== УДАЛЕНИЕ =====
 function deleteMessage(messageId) {
     deleteMessageId = messageId;
     document.getElementById('deleteMessageModal').classList.add('show');
@@ -1081,13 +1187,9 @@ async function confirmDeleteMessage() {
         }
     } else {
         result = await api.deleteMessageForMe(deleteMessageId, currentUser.id);
-        if (result.success) {
-            // Обновляем только у себя
-        }
     }
     
-    if (result.success) {
-        // Синхронное обновление без перезагрузки
+    if (result && result.success) {
         await loadChats();
         if (currentChatId) {
             await renderMessages(currentChatId);
@@ -1096,7 +1198,7 @@ async function confirmDeleteMessage() {
     closeDeleteModal();
 }
 
-// ===== РЕДАКТИРОВАНИЕ С ДИАЛОГОМ (СИНХРОННО) =====
+// ===== РЕДАКТИРОВАНИЕ =====
 function editMessage(messageId) {
     editMessageId = messageId;
     const msg = document.querySelector(`.message[data-message-id="${messageId}"]`);
@@ -1126,7 +1228,6 @@ async function confirmEditMessage() {
         if (socket) {
             socket.emit('messageEdited', { messageId: editMessageId, text: newText, chatId: currentChatId });
         }
-        // Синхронное обновление
         await renderMessages(currentChatId);
     }
     closeEditModal();
@@ -1608,23 +1709,209 @@ function playVoice(button, url) {
     audio.play();
 }
 
-// ===== ЗВОНКИ =====
+// ===== ЗВОНКИ (WebRTC) =====
 
-function startCall() {
+async function startCall() {
     if (!currentChatUser) {
         return;
     }
-    if (socket) {
-        socket.emit('callStart', { from: currentUser.id, to: currentChatUser, type: 'audio' });
+    
+    callType = 'audio';
+    await startWebRTC(currentChatUser);
+}
+
+async function startVideoCall() {
+    if (!currentChatUser) {
+        return;
+    }
+    
+    callType = 'video';
+    await startWebRTC(currentChatUser);
+}
+
+async function startWebRTC(userId) {
+    try {
+        currentCallId = Date.now().toString();
+        
+        // Получаем локальный медиапоток
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: callType === 'video'
+        });
+        
+        // Показываем UI звонка
+        showCallUI();
+        
+        // Создаем PeerConnection
+        peerConnection = new RTCPeerConnection(configuration);
+        
+        // Добавляем локальные треки
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+        
+        // Обработчик удаленного потока
+        peerConnection.ontrack = (event) => {
+            remoteStream = event.streams[0];
+            showRemoteVideo();
+        };
+        
+        // Создаем offer
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        // Отправляем offer через WebSocket
+        if (socket) {
+            socket.emit('callOffer', {
+                callId: currentCallId,
+                to: userId,
+                from: currentUser.id,
+                offer: offer,
+                type: callType
+            });
+        }
+        
+        isCallActive = true;
+        
+    } catch (error) {
+        console.error('Start call error:', error);
+        alert('Не удалось начать звонок. Проверьте микрофон.');
     }
 }
 
-function startVideoCall() {
-    if (!currentChatUser) {
-        return;
+function showCallUI() {
+    // Создаем или показываем UI звонка
+    let callUI = document.getElementById('callUI');
+    if (!callUI) {
+        callUI = document.createElement('div');
+        callUI.id = 'callUI';
+        callUI.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        `;
+        callUI.innerHTML = `
+            <div id="remoteVideoContainer" style="width:100%;height:70%;display:flex;align-items:center;justify-content:center;">
+                <video id="remoteVideo" autoplay playsinline style="max-width:100%;max-height:100%;border-radius:12px;background:#1a1a1a;"></video>
+                <div id="callStatus" style="position:absolute;bottom:20%;font-size:20px;">Звонок...</div>
+            </div>
+            <div style="display:flex;gap:20px;margin-top:20px;">
+                <button onclick="endCall()" style="width:60px;height:60px;border-radius:50%;border:none;background:#e74c3c;color:#fff;font-size:24px;cursor:pointer;">
+                    <i class="fas fa-phone-slash"></i>
+                </button>
+                <button onclick="toggleMute()" style="width:60px;height:60px;border-radius:50%;border:none;background:#2b2b2b;color:#fff;font-size:24px;cursor:pointer;">
+                    <i class="fas fa-microphone"></i>
+                </button>
+            </div>
+            <div id="localVideoContainer" style="position:absolute;bottom:20%;right:20px;width:120px;height:160px;border-radius:12px;overflow:hidden;border:2px solid #3a3a3a;">
+                <video id="localVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
+            </div>
+        `;
+        document.body.appendChild(callUI);
     }
-    if (socket) {
-        socket.emit('callStart', { from: currentUser.id, to: currentChatUser, type: 'video' });
+    
+    // Показываем локальное видео
+    const localVideo = document.getElementById('localVideo');
+    if (localVideo && localStream) {
+        localVideo.srcObject = localStream;
+    }
+    
+    callUI.style.display = 'flex';
+}
+
+function showRemoteVideo() {
+    const remoteVideo = document.getElementById('remoteVideo');
+    if (remoteVideo && remoteStream) {
+        remoteVideo.srcObject = remoteStream;
+        document.getElementById('callStatus').textContent = 'Разговор...';
+    }
+}
+
+function showIncomingCall(data) {
+    if (confirm(`Входящий звонок от ${data.fromName || 'Пользователя'}`)) {
+        // Принимаем звонок
+        currentCallId = data.callId;
+        callType = data.type || 'audio';
+        
+        // Отвечаем на звонок
+        if (socket) {
+            socket.emit('callAnswer', {
+                callId: data.callId,
+                answer: true
+            });
+        }
+        
+        // Запускаем WebRTC
+        startWebRTC(data.from);
+    } else {
+        // Отклоняем звонок
+        if (socket) {
+            socket.emit('callAnswer', {
+                callId: data.callId,
+                answer: false
+            });
+        }
+    }
+}
+
+function handleCallAnswer(data) {
+    if (data.answer) {
+        // Собеседник принял звонок
+        document.getElementById('callStatus').textContent = 'Соединение...';
+    } else {
+        // Собеседник отклонил звонок
+        endCall();
+    }
+}
+
+async function endCall() {
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+    }
+    
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    
+    if (remoteStream) {
+        remoteStream = null;
+    }
+    
+    isCallActive = false;
+    
+    // Удаляем UI звонка
+    const callUI = document.getElementById('callUI');
+    if (callUI) {
+        callUI.style.display = 'none';
+    }
+    
+    if (socket && currentCallId) {
+        socket.emit('callEnd', { callId: currentCallId });
+        currentCallId = null;
+    }
+}
+
+function toggleMute() {
+    if (localStream) {
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+            audioTrack.enabled = !audioTrack.enabled;
+            const btn = document.querySelector('#callUI button:last-child i');
+            if (btn) {
+                btn.className = audioTrack.enabled ? 'fas fa-microphone' : 'fas fa-microphone-slash';
+            }
+        }
     }
 }
 

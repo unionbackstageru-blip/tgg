@@ -683,6 +683,46 @@ app.post('/api/messages/delete-for-me', async (req, res) => {
     }
 });
 
+// ===== ЗВОНКИ (WebRTC сигнализация) =====
+const calls = new Map();
+
+app.post('/api/call/offer', async (req, res) => {
+    try {
+        const { callId, userId } = req.body;
+        calls.set(callId, { userId, offer: null, answer: null });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Call offer error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+app.post('/api/call/answer', async (req, res) => {
+    try {
+        const { callId, answer } = req.body;
+        const call = calls.get(callId);
+        if (call) {
+            call.answer = answer;
+            calls.set(callId, call);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Call answer error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+app.post('/api/call/end', async (req, res) => {
+    try {
+        const { callId } = req.body;
+        calls.delete(callId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Call end error:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
 // ===== WEBSOCKET =====
 
 const onlineUsers = new Map();
