@@ -1,5 +1,5 @@
 /* ============================================================
-   TeleFon - Клиент (ПОЛНАЯ ВЕРСИЯ С АВАТАРКАМИ И ЗВОНКАМИ)
+   TeleFon - Клиент (ПОЛНАЯ СИНХРОНИЗАЦИЯ)
    ============================================================ */
 
 const API_URL = window.location.origin;
@@ -304,7 +304,6 @@ function getFileIcon(filename) {
     return icons[ext] || 'file';
 }
 
-// ===== УБИРАЕМ ВСЕ УВЕДОМЛЕНИЯ =====
 function showToast(text, type = 'info', duration = 3000) {
     return;
 }
@@ -387,6 +386,7 @@ function connectSocket(userId) {
         }
     });
     
+    // ===== ИСПРАВЛЕНО: МГНОВЕННАЯ ОБРАБОТКА НОВЫХ СООБЩЕНИЙ =====
     socket.on('newMessage', (data) => {
         console.log('📨 Новое сообщение:', data);
         
@@ -396,26 +396,32 @@ function connectSocket(userId) {
         }
         lastMessageId = data.message.id;
         
-        loadChats().then(() => {
-            if (data.chatId === currentChatId) {
-                renderMessages(currentChatId);
-                api.markAsRead(currentChatId, currentUser.id);
-                if (socket) {
-                    socket.emit('messageRead', { messageId: data.message.id, userId: currentUser.id });
-                }
+        // Обновляем чаты в фоне
+        loadChats();
+        
+        // Если сообщение в текущем чате - добавляем его без перерисовки всего чата
+        if (data.chatId === currentChatId) {
+            appendMessage(data.message);
+            api.markAsRead(currentChatId, currentUser.id);
+            if (socket) {
+                socket.emit('messageRead', { messageId: data.message.id, userId: currentUser.id });
             }
-        });
+        }
     });
     
     socket.on('messageStatus', () => {
-        if (currentChatId) renderMessages(currentChatId);
+        if (currentChatId) updateMessageStatus(currentChatId);
     });
     
     socket.on('messageDeleted', (data) => {
         if (data.chatId === currentChatId) {
-            loadChats().then(() => {
-                renderMessages(currentChatId);
-            });
+            // Удаляем сообщение из DOM без перезагрузки
+            const msgEl = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
+            if (msgEl) {
+                msgEl.remove();
+            }
+            // Обновляем счетчик непрочитанных
+            loadChats();
         } else {
             loadChats();
         }
@@ -423,7 +429,19 @@ function connectSocket(userId) {
     
     socket.on('messageEdited', (data) => {
         if (data.chatId === currentChatId) {
-            renderMessages(currentChatId);
+            // Обновляем текст сообщения без перезагрузки
+            const msgEl = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
+            if (msgEl) {
+                const textEl = msgEl.childNodes[0];
+                if (textEl) {
+                    textEl.textContent = data.text;
+                }
+                // Добавляем пометку "ред."
+                const timeEl = msgEl.querySelector('.time');
+                if (timeEl && !timeEl.textContent.includes('(ред.)')) {
+                    timeEl.textContent += ' (ред.)';
+                }
+            }
         }
     });
     
@@ -450,6 +468,128 @@ function connectSocket(userId) {
 
     socket.on('callEnd', (data) => {
         endCall();
+    });
+}
+
+// ===== ДОБАВЛЕНИЕ СООБЩЕНИЯ БЕЗ ПЕРЕРИСОВКИ =====
+function appendMessage(message) {
+    const area = document.getElementById('messagesArea');
+    if (!area) return;
+    
+    // Проверяем, есть ли уже такое сообщение
+    if (document.querySelector(`.message[data-message-id="${message.id}"]`)) {
+        return;
+    }
+    
+    const div = document.createElement('div');
+    const isSent = message.sender_id === currentUser.id;
+    
+    div.className = `message ${isSent ? 'sent' : 'received'}`;
+    div.dataset.messageId = message.id;
+    
+    const time = formatTime(message.created_at);
+    let content = '';
+    
+    // Аватарка для полученных сообщений
+    if (!isSent) {
+        const avatarLetter = message.sender_id ? message.sender_id.charAt(0).toUpperCase() : 'U';
+        content += `
+            <div class="message-avatar">${avatarLetter}</div>
+        `;
+    }
+    
+    if (message.text) {
+        content += message.text;
+    }
+    
+    if (message.file) {
+        try {
+            const file = typeof message.file === 'string' ? JSON.parse(message.file) : message.file;
+            const isImage = file.type && file.type.startsWith('image/');
+            if (isImage) {
+                content += `
+                    <div class="photo-attachment" onclick="window.open('${file.url}','_blank')">
+                        <img src="${file.url}" class="file-preview-image" loading="lazy">
+                        <div class="photo-overlay"><i class="fas fa-expand"></i></div>
+                    </div>
+                `;
+            } else {
+                const icon = getFileIcon(file.name);
+                content += `
+                    <div class="file-attachment" onclick="window.open('${file.url}','_blank')">
+                        <i class="fas fa-${icon}"></i>
+                        <div class="file-info">
+                            <div class="file-name">${file.name}</div>
+                            <div class="file-size">${formatFileSize(file.size)}</div>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (e) {}
+    }
+    
+    let statusIcon = '';
+    if (isSent) {
+        if (message.status === 'sent') {
+            statusIcon = `<span class="message-status sent"><i class="fas fa-check"></i></span>`;
+        } else if (message.status === 'delivered') {
+            statusIcon = `<span class="message-status delivered"><i class="fas fa-check-double"></i></span>`;
+        } else if (message.status === 'read') {
+            statusIcon = `<span class="message-status read"><i class="fas fa-check-double"></i></span>`;
+        }
+    }
+    
+    const reactionsHtml = `<div class="message-reactions" id="reactions-${message.id}"></div>`;
+    
+    const actionsHtml = `
+        <div class="message-actions">
+            ${isSent ? `<button onclick="editMessage('${message.id}')" title="Редактировать"><i class="fas fa-edit"></i></button>` : ''}
+            ${isSent ? `<button onclick="deleteMessage('${message.id}')" title="Удалить"><i class="fas fa-trash"></i></button>` : ''}
+            <button onclick="replyToMessage('${message.id}')" title="Ответить"><i class="fas fa-reply"></i></button>
+            <button onclick="forwardMessage('${message.id}')" title="Переслать"><i class="fas fa-forward"></i></button>
+            <button onclick="pinMessage('${message.id}')" title="Закрепить"><i class="fas fa-thumbtack"></i></button>
+            <button onclick="addReaction('${message.id}','❤️')" title="Реакция"><i class="fas fa-smile"></i></button>
+        </div>
+    `;
+    
+    div.innerHTML = `
+        ${content}
+        <span class="time">${time} ${statusIcon}</span>
+        ${reactionsHtml}
+        ${actionsHtml}
+    `;
+    
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+    
+    // Загружаем реакции
+    loadReactions(message.id);
+}
+
+// ===== ОБНОВЛЕНИЕ СТАТУСА СООБЩЕНИЙ =====
+function updateMessageStatus(chatId) {
+    // Просто перерисовываем статусы без перезагрузки всего чата
+    const messages = document.querySelectorAll('.message');
+    messages.forEach(msgEl => {
+        const statusEl = msgEl.querySelector('.message-status');
+        if (statusEl) {
+            // Обновляем статус из данных
+            const msgId = msgEl.dataset.messageId;
+            if (msgId) {
+                // Можно запросить актуальный статус у сервера
+                api.getMessages(chatId).then(messages => {
+                    const msg = messages.find(m => m.id === msgId);
+                    if (msg && msg.status) {
+                        let icon = '';
+                        if (msg.status === 'sent') icon = '<i class="fas fa-check"></i>';
+                        else if (msg.status === 'delivered') icon = '<i class="fas fa-check-double"></i>';
+                        else if (msg.status === 'read') icon = '<i class="fas fa-check-double"></i>';
+                        statusEl.innerHTML = icon;
+                        statusEl.className = `message-status ${msg.status}`;
+                    }
+                });
+            }
+        }
     });
 }
 
@@ -780,58 +920,6 @@ function updateChatStatus() {
     }
 }
 
-// ===== ОБНОВЛЕНИЕ АВАТАРОК ВЕЗДЕ =====
-function updateAllAvatars(user) {
-    // 1. В профиле пользователя (левая панель)
-    const profileAvatarText = document.getElementById('profileAvatarText');
-    const profileAvatarImg = document.getElementById('profileAvatarImg');
-    if (user.avatar && user.avatar.startsWith('http')) {
-        profileAvatarImg.src = user.avatar;
-        profileAvatarImg.style.display = 'block';
-        profileAvatarText.style.display = 'none';
-    } else {
-        profileAvatarText.textContent = user.name.charAt(0).toUpperCase();
-        profileAvatarText.style.display = 'block';
-        profileAvatarImg.style.display = 'none';
-    }
-    
-    // 2. В шапке чата
-    const chatAvatarText = document.getElementById('chatAvatarText');
-    const chatAvatarImg = document.getElementById('chatAvatarImg');
-    if (user.avatar && user.avatar.startsWith('http')) {
-        chatAvatarImg.src = user.avatar;
-        chatAvatarImg.style.display = 'block';
-        chatAvatarText.style.display = 'none';
-    } else {
-        chatAvatarText.textContent = user.name.charAt(0).toUpperCase();
-        chatAvatarText.style.display = 'flex';
-        chatAvatarImg.style.display = 'none';
-    }
-    
-    // 3. В профиле пользователя (модалка)
-    const profileViewAvatarText = document.getElementById('profileViewAvatarText');
-    const profileViewAvatarImg = document.getElementById('profileViewAvatar');
-    if (user.avatar && user.avatar.startsWith('http')) {
-        profileViewAvatarImg.src = user.avatar;
-        profileViewAvatarImg.style.display = 'block';
-        profileViewAvatarText.style.display = 'none';
-    } else {
-        profileViewAvatarText.textContent = user.name.charAt(0).toUpperCase();
-        profileViewAvatarText.style.display = 'flex';
-        profileViewAvatarImg.style.display = 'none';
-    }
-    
-    // 4. В списке чатов — обновляем все чаты где есть этот пользователь
-    allChats.forEach(chat => {
-        if (chat.userId === user.id) {
-            chat.avatar = user.avatar;
-        }
-    });
-    
-    // 5. Перерисовываем список чатов
-    renderChats();
-}
-
 // ===== ОТКРЫТИЕ ЧАТА =====
 
 async function openChat(chatId) {
@@ -845,7 +933,6 @@ async function openChat(chatId) {
     if (chat.type === 'private' && chat.participants) {
         const other = chat.participants.find(p => p.user_id !== currentUser.id);
         currentChatUser = other ? other.user_id : null;
-        // Загружаем аватарку пользователя для шапки
         if (currentChatUser) {
             try {
                 const user = await api.getUserProfile(currentChatUser);
@@ -861,7 +948,6 @@ async function openChat(chatId) {
     document.getElementById('chatName').textContent = name;
     updateChatStatus();
     
-    // ===== ОБНОВЛЯЕМ АВАТАРКУ В ШАПКЕ =====
     const avatarText = document.getElementById('chatAvatarText');
     const avatarImg = document.getElementById('chatAvatarImg');
     const chatAvatar = chat.avatar || null;
@@ -876,7 +962,6 @@ async function openChat(chatId) {
         avatarImg.style.display = 'none';
     }
     
-    // Применяем обои
     if (chat.wallpaper) {
         document.getElementById('messagesArea').style.backgroundImage = `url(${chat.wallpaper})`;
         document.getElementById('messagesArea').style.backgroundSize = 'cover';
@@ -892,7 +977,8 @@ async function openChat(chatId) {
         }
     } catch (e) {}
     
-    await renderMessages(chatId);
+    // Загружаем сообщения
+    await loadMessages(chatId);
     document.getElementById('messageInput').disabled = false;
     document.getElementById('sendBtn').disabled = false;
 
@@ -904,24 +990,18 @@ async function openChat(chatId) {
     }
 }
 
-// ===== РЕНДЕР СООБЩЕНИЙ =====
-
-async function renderMessages(chatId) {
+// ===== ЗАГРУЗКА СООБЩЕНИЙ (БЕЗ ПЕРЕРИСОВКИ ВСЕГО ЧАТА) =====
+async function loadMessages(chatId) {
     const area = document.getElementById('messagesArea');
     if (!area) return;
     
     const messages = await api.getMessages(chatId);
     
-    const hash = messages.map(m => m.id).join('-');
-    if (area.dataset.hash === hash) {
-        console.log('⚠️ Сообщения не изменились, пропускаем перерисовку');
-        return;
-    }
-    area.dataset.hash = hash;
+    // Очищаем только если сообщений нет или они изменились
+    const currentIds = Array.from(area.querySelectorAll('.message')).map(el => el.dataset.messageId);
+    const newIds = messages.map(m => m.id);
     
-    area.innerHTML = '';
-    
-    if (messages.length === 0) {
+    if (currentIds.length === 0 && newIds.length === 0) {
         area.innerHTML = `
             <div class="empty-chat">
                 <p>Нет сообщений</p>
@@ -930,147 +1010,158 @@ async function renderMessages(chatId) {
         `;
         return;
     }
-
-    // Кэш для аватарок
-    const avatarCache = {};
     
-    for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
-        const isSent = msg.sender_id === currentUser.id;
-        const showAvatar = !isSent && (i === 0 || messages[i - 1].sender_id !== msg.sender_id);
+    // Если сообщения изменились, перерисовываем
+    if (currentIds.join('-') !== newIds.join('-')) {
+        area.innerHTML = '';
         
-        // Получаем аватарку отправителя
-        let senderAvatar = null;
-        if (!isSent && showAvatar) {
-            if (!avatarCache[msg.sender_id]) {
-                try {
-                    const user = await api.getUserProfile(msg.sender_id);
-                    avatarCache[msg.sender_id] = user ? user.avatar : null;
-                } catch (e) {
-                    avatarCache[msg.sender_id] = null;
-                }
-            }
-            senderAvatar = avatarCache[msg.sender_id];
-        }
-        
-        const div = document.createElement('div');
-        div.className = `message ${isSent ? 'sent' : 'received'}`;
-        div.dataset.messageId = msg.id;
-        
-        const time = formatTime(msg.created_at);
-        let content = '';
-        
-        // Аватарка для received сообщений (с правильным отступом)
-        if (!isSent && showAvatar) {
-            const avatarLetter = msg.sender_id ? msg.sender_id.charAt(0).toUpperCase() : 'U';
-            content += `
-                <div class="message-avatar">
-                    ${senderAvatar ? `<img src="${senderAvatar}" onerror="this.style.display='none'">` : avatarLetter}
+        if (messages.length === 0) {
+            area.innerHTML = `
+                <div class="empty-chat">
+                    <p>Нет сообщений</p>
+                    <span>Напишите первое сообщение</span>
                 </div>
             `;
+            return;
         }
         
-        if (msg.reply_to) {
-            content += `<div class="reply-to">↩️ Ответ</div>`;
-        }
+        // Кэш для аватарок
+        const avatarCache = {};
         
-        if (msg.text) {
-            content += msg.text;
-        }
-        
-        if (msg.file) {
-            try {
-                const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
-                const isImage = file.type && file.type.startsWith('image/');
-                const isVideo = file.type && file.type.startsWith('video/');
-                
-                if (isImage) {
-                    content += `
-                        <div class="photo-attachment" onclick="window.open('${file.url}','_blank')">
-                            <img src="${file.url}" class="file-preview-image" loading="lazy" onerror="this.style.display='none'">
-                            <div class="photo-overlay"><i class="fas fa-expand"></i></div>
-                        </div>
-                    `;
-                } else if (isVideo) {
-                    content += `
-                        <div class="video-attachment">
-                            <video src="${file.url}" controls style="max-width:280px;max-height:200px;border-radius:8px;background:#000;"></video>
-                            <div style="font-size:11px;color:#888;margin-top:4px;">${file.name}</div>
-                        </div>
-                    `;
-                } else {
-                    const icon = getFileIcon(file.name);
-                    content += `
-                        <div class="file-attachment" onclick="window.open('${file.url}','_blank')">
-                            <i class="fas fa-${icon}"></i>
-                            <div class="file-info">
-                                <div class="file-name">${file.name}</div>
-                                <div class="file-size">${formatFileSize(file.size)}</div>
-                            </div>
-                        </div>
-                    `;
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
+            const isSent = msg.sender_id === currentUser.id;
+            const showAvatar = !isSent && (i === 0 || messages[i - 1].sender_id !== msg.sender_id);
+            
+            let senderAvatar = null;
+            if (!isSent && showAvatar) {
+                if (!avatarCache[msg.sender_id]) {
+                    try {
+                        const user = await api.getUserProfile(msg.sender_id);
+                        avatarCache[msg.sender_id] = user ? user.avatar : null;
+                    } catch (e) {
+                        avatarCache[msg.sender_id] = null;
+                    }
                 }
-            } catch (e) {}
-        }
-        
-        if (msg.voice_duration > 0) {
-            content += `
-                <div class="voice-message">
-                    <button class="voice-play" onclick="playVoice(this, '${msg.file}')">
-                        <i class="fas fa-play"></i>
-                    </button>
-                    <div class="voice-waveform">
-                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
-                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
-                        <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                senderAvatar = avatarCache[msg.sender_id];
+            }
+            
+            const div = document.createElement('div');
+            div.className = `message ${isSent ? 'sent' : 'received'}`;
+            div.dataset.messageId = msg.id;
+            
+            const time = formatTime(msg.created_at);
+            let content = '';
+            
+            if (!isSent && showAvatar) {
+                const avatarLetter = msg.sender_id ? msg.sender_id.charAt(0).toUpperCase() : 'U';
+                content += `
+                    <div class="message-avatar">
+                        ${senderAvatar ? `<img src="${senderAvatar}" onerror="this.style.display='none'">` : avatarLetter}
                     </div>
-                    <span class="voice-duration-text">${formatDuration(msg.voice_duration)}</span>
+                `;
+            }
+            
+            if (msg.reply_to) {
+                content += `<div class="reply-to">↩️ Ответ</div>`;
+            }
+            
+            if (msg.text) {
+                content += msg.text;
+            }
+            
+            if (msg.file) {
+                try {
+                    const file = typeof msg.file === 'string' ? JSON.parse(msg.file) : msg.file;
+                    const isImage = file.type && file.type.startsWith('image/');
+                    const isVideo = file.type && file.type.startsWith('video/');
+                    
+                    if (isImage) {
+                        content += `
+                            <div class="photo-attachment" onclick="window.open('${file.url}','_blank')">
+                                <img src="${file.url}" class="file-preview-image" loading="lazy" onerror="this.style.display='none'">
+                                <div class="photo-overlay"><i class="fas fa-expand"></i></div>
+                            </div>
+                        `;
+                    } else if (isVideo) {
+                        content += `
+                            <div class="video-attachment">
+                                <video src="${file.url}" controls style="max-width:280px;max-height:200px;border-radius:8px;background:#000;"></video>
+                                <div style="font-size:11px;color:#888;margin-top:4px;">${file.name}</div>
+                            </div>
+                        `;
+                    } else {
+                        const icon = getFileIcon(file.name);
+                        content += `
+                            <div class="file-attachment" onclick="window.open('${file.url}','_blank')">
+                                <i class="fas fa-${icon}"></i>
+                                <div class="file-info">
+                                    <div class="file-name">${file.name}</div>
+                                    <div class="file-size">${formatFileSize(file.size)}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } catch (e) {}
+            }
+            
+            if (msg.voice_duration > 0) {
+                content += `
+                    <div class="voice-message">
+                        <button class="voice-play" onclick="playVoice(this, '${msg.file}')">
+                            <i class="fas fa-play"></i>
+                        </button>
+                        <div class="voice-waveform">
+                            <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                            <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                            <div class="wave-bar" style="height:${Math.random()*20+5}px;left:${Math.random()*90}%;"></div>
+                        </div>
+                        <span class="voice-duration-text">${formatDuration(msg.voice_duration)}</span>
+                    </div>
+                `;
+            }
+            
+            if (msg.edited_at) {
+                content += ` <span style="font-size:11px;color:#888;">(ред.)</span>`;
+            }
+            
+            let statusIcon = '';
+            if (isSent) {
+                if (msg.status === 'sent') {
+                    statusIcon = `<span class="message-status sent"><i class="fas fa-check"></i></span>`;
+                } else if (msg.status === 'delivered') {
+                    statusIcon = `<span class="message-status delivered"><i class="fas fa-check-double"></i></span>`;
+                } else if (msg.status === 'read') {
+                    statusIcon = `<span class="message-status read"><i class="fas fa-check-double"></i></span>`;
+                }
+            }
+            
+            const reactionsHtml = `<div class="message-reactions" id="reactions-${msg.id}"></div>`;
+            
+            const actionsHtml = `
+                <div class="message-actions">
+                    ${isSent ? `<button onclick="editMessage('${msg.id}')" title="Редактировать"><i class="fas fa-edit"></i></button>` : ''}
+                    ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Удалить"><i class="fas fa-trash"></i></button>` : ''}
+                    <button onclick="replyToMessage('${msg.id}')" title="Ответить"><i class="fas fa-reply"></i></button>
+                    <button onclick="forwardMessage('${msg.id}')" title="Переслать"><i class="fas fa-forward"></i></button>
+                    <button onclick="pinMessage('${msg.id}')" title="Закрепить"><i class="fas fa-thumbtack"></i></button>
+                    <button onclick="addReaction('${msg.id}','❤️')" title="Реакция"><i class="fas fa-smile"></i></button>
                 </div>
             `;
-        }
-        
-        if (msg.edited_at) {
-            content += ` <span style="font-size:11px;color:#888;">(ред.)</span>`;
-        }
-        
-        let statusIcon = '';
-        if (isSent) {
-            if (msg.status === 'sent') {
-                statusIcon = `<span class="message-status sent"><i class="fas fa-check"></i></span>`;
-            } else if (msg.status === 'delivered') {
-                statusIcon = `<span class="message-status delivered"><i class="fas fa-check-double"></i></span>`;
-            } else if (msg.status === 'read') {
-                statusIcon = `<span class="message-status read"><i class="fas fa-check-double"></i></span>`;
-            }
-        }
-        
-        const reactionsHtml = `<div class="message-reactions" id="reactions-${msg.id}"></div>`;
-        
-        const actionsHtml = `
-            <div class="message-actions">
-                ${isSent ? `<button onclick="editMessage('${msg.id}')" title="Редактировать"><i class="fas fa-edit"></i></button>` : ''}
-                ${isSent ? `<button onclick="deleteMessage('${msg.id}')" title="Удалить"><i class="fas fa-trash"></i></button>` : ''}
-                <button onclick="replyToMessage('${msg.id}')" title="Ответить"><i class="fas fa-reply"></i></button>
-                <button onclick="forwardMessage('${msg.id}')" title="Переслать"><i class="fas fa-forward"></i></button>
-                <button onclick="pinMessage('${msg.id}')" title="Закрепить"><i class="fas fa-thumbtack"></i></button>
-                <button onclick="addReaction('${msg.id}','❤️')" title="Реакция"><i class="fas fa-smile"></i></button>
-            </div>
-        `;
-        
-        div.innerHTML = `
-            ${content}
-            <div class="message-footer">
+            
+            div.innerHTML = `
+                ${content}
                 <span class="time">${time} ${statusIcon}</span>
                 ${reactionsHtml}
-            </div>
-            ${actionsHtml}
-        `;
-        
-        area.appendChild(div);
-        
-        loadReactions(msg.id);
+                ${actionsHtml}
+            `;
+            
+            area.appendChild(div);
+            
+            loadReactions(msg.id);
+        }
     }
-
+    
     area.scrollTop = area.scrollHeight;
 }
 
@@ -1173,7 +1264,7 @@ function cancelReply() {
     document.getElementById('messageInput').placeholder = 'Сообщение...';
 }
 
-// ===== УДАЛЕНИЕ =====
+// ===== УДАЛЕНИЕ (СИНХРОННО) =====
 function deleteMessage(messageId) {
     deleteMessageId = messageId;
     document.getElementById('deleteMessageModal').classList.add('show');
@@ -1192,24 +1283,31 @@ async function confirmDeleteMessage() {
     if (forEveryone) {
         result = await api.deleteMessageForEveryone(deleteMessageId);
         if (result.success) {
+            // Удаляем из DOM сразу
+            const msgEl = document.querySelector(`.message[data-message-id="${deleteMessageId}"]`);
+            if (msgEl) {
+                msgEl.remove();
+            }
             if (socket) {
                 socket.emit('messageDeleted', { messageId: deleteMessageId, chatId: currentChatId });
             }
+            // Обновляем список чатов в фоне
+            loadChats();
         }
     } else {
         result = await api.deleteMessageForMe(deleteMessageId, currentUser.id);
-    }
-    
-    if (result && result.success) {
-        await loadChats();
-        if (currentChatId) {
-            await renderMessages(currentChatId);
+        if (result.success) {
+            const msgEl = document.querySelector(`.message[data-message-id="${deleteMessageId}"]`);
+            if (msgEl) {
+                msgEl.remove();
+            }
         }
     }
+    
     closeDeleteModal();
 }
 
-// ===== РЕДАКТИРОВАНИЕ =====
+// ===== РЕДАКТИРОВАНИЕ (СИНХРОННО) =====
 function editMessage(messageId) {
     editMessageId = messageId;
     const msg = document.querySelector(`.message[data-message-id="${messageId}"]`);
@@ -1236,10 +1334,23 @@ async function confirmEditMessage() {
     
     const result = await api.editMessage(editMessageId, newText, currentUser.id);
     if (result.success) {
+        // Обновляем текст в DOM
+        const msgEl = document.querySelector(`.message[data-message-id="${editMessageId}"]`);
+        if (msgEl) {
+            // Находим текстовый контент
+            const textNode = msgEl.childNodes[0];
+            if (textNode) {
+                textNode.textContent = newText;
+            }
+            // Добавляем пометку "ред."
+            const timeEl = msgEl.querySelector('.time');
+            if (timeEl && !timeEl.textContent.includes('(ред.)')) {
+                timeEl.textContent += ' (ред.)';
+            }
+        }
         if (socket) {
             socket.emit('messageEdited', { messageId: editMessageId, text: newText, chatId: currentChatId });
         }
-        await renderMessages(currentChatId);
     }
     closeEditModal();
 }
@@ -1316,7 +1427,6 @@ async function loadUserProfile(userId) {
         document.getElementById('profileViewStatus').textContent = user.online ? '🟢 онлайн' : '⚫ офлайн';
         document.getElementById('profileViewJoined').textContent = 'В сети с ' + new Date(user.created_at).toLocaleDateString('ru-RU');
         
-        // ===== ОБНОВЛЯЕМ АВАТАРКУ В ПРОФИЛЕ =====
         const avatarText = document.getElementById('profileViewAvatarText');
         const avatarImg = document.getElementById('profileViewAvatar');
         
@@ -1465,50 +1575,96 @@ async function openChatWithUser(userId) {
     }
 }
 
-// ===== ПОИСК =====
+// ===== ПОИСК (ВКЛЮЧАЯ КАНАЛЫ) =====
 
 document.getElementById('searchInput').addEventListener('input', function(e) {
     const query = this.value.trim();
     if (query.length > 1) {
         clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => searchUsers(query), 300);
+        searchTimeout = setTimeout(() => searchAll(query), 300);
     } else {
         renderChats();
     }
 });
 
-async function searchUsers(query) {
+async function searchAll(query) {
     if (!currentUser) return;
-    const results = await api.searchUsers(query, currentUser.id);
+    
+    // Ищем пользователей
+    const users = await api.searchUsers(query, currentUser.id);
+    
+    // Ищем чаты (группы и каналы) по названию
+    const matchedChats = allChats.filter(chat => {
+        const name = chat.displayName || chat.name || '';
+        return name.toLowerCase().includes(query.toLowerCase());
+    });
+    
     const list = document.getElementById('chatList');
     if (!list) return;
     list.innerHTML = '';
     
-    if (results.length === 0) {
-        list.innerHTML = `<div style="padding:20px;text-align:center;color:#6a6a6a;">Пользователи не найдены</div>`;
-        return;
+    let hasResults = false;
+    
+    // Показываем найденные чаты
+    if (matchedChats.length > 0) {
+        matchedChats.forEach(chat => {
+            const name = chat.displayName || chat.name || 'Чат';
+            const avatar = chat.avatar || null;
+            const lastMsg = chat.last_message || 'Нет сообщений';
+            
+            const item = document.createElement('div');
+            item.className = 'chat-item';
+            let typeIcon = '';
+            if (chat.type === 'channel') typeIcon = '📢 ';
+            else if (chat.type === 'group') typeIcon = '👥 ';
+            else typeIcon = '💬 ';
+            item.innerHTML = `
+                <div class="chat-avatar">
+                    ${avatar ? `<img src="${avatar}" onerror="this.style.display='none'">` : name.charAt(0).toUpperCase()}
+                </div>
+                <div class="chat-info">
+                    <div class="name">${typeIcon}${name}</div>
+                    <div class="last-msg">${lastMsg}</div>
+                </div>
+            `;
+            item.addEventListener('click', () => {
+                document.getElementById('searchInput').value = '';
+                renderChats();
+                openChat(chat.id);
+            });
+            list.appendChild(item);
+        });
+        hasResults = true;
     }
     
-    results.forEach(user => {
-        const item = document.createElement('div');
-        item.className = 'chat-item';
-        item.innerHTML = `
-            <div class="chat-avatar">
-                ${user.avatar ? `<img src="${user.avatar}" onerror="this.style.display='none'">` : user.name.charAt(0).toUpperCase()}
-                ${user.online ? '<div class="online-dot"></div>' : ''}
-            </div>
-            <div class="chat-info">
-                <div class="name">${user.name}</div>
-                <div class="last-msg">@${user.username || 'username'}</div>
-            </div>
-        `;
-        item.addEventListener('click', () => {
-            document.getElementById('searchInput').value = '';
-            renderChats();
-            openChatWithUser(user.id);
+    // Показываем найденных пользователей
+    if (users.length > 0) {
+        users.forEach(user => {
+            const item = document.createElement('div');
+            item.className = 'chat-item';
+            item.innerHTML = `
+                <div class="chat-avatar">
+                    ${user.avatar ? `<img src="${user.avatar}" onerror="this.style.display='none'">` : user.name.charAt(0).toUpperCase()}
+                    ${user.online ? '<div class="online-dot"></div>' : ''}
+                </div>
+                <div class="chat-info">
+                    <div class="name">${user.name}</div>
+                    <div class="last-msg">@${user.username || 'username'}</div>
+                </div>
+            `;
+            item.addEventListener('click', () => {
+                document.getElementById('searchInput').value = '';
+                renderChats();
+                openChatWithUser(user.id);
+            });
+            list.appendChild(item);
         });
-        list.appendChild(item);
-    });
+        hasResults = true;
+    }
+    
+    if (!hasResults) {
+        list.innerHTML = `<div style="padding:20px;text-align:center;color:#6a6a6a;">Ничего не найдено</div>`;
+    }
 }
 
 // ===== НАСТРОЙКИ ЧАТА =====
@@ -1721,7 +1877,7 @@ function playVoice(button, url) {
     audio.play();
 }
 
-// ===== ЗВОНКИ (WebRTC) =====
+// ===== ЗВОНКИ =====
 
 async function startCall() {
     if (!currentChatUser) {
@@ -1745,34 +1901,27 @@ async function startWebRTC(userId) {
     try {
         currentCallId = Date.now().toString();
         
-        // Получаем локальный медиапоток
         localStream = await navigator.mediaDevices.getUserMedia({
             audio: true,
             video: callType === 'video'
         });
         
-        // Показываем UI звонка
         showCallUI();
         
-        // Создаем PeerConnection
         peerConnection = new RTCPeerConnection(configuration);
         
-        // Добавляем локальные треки
         localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
         });
         
-        // Обработчик удаленного потока
         peerConnection.ontrack = (event) => {
             remoteStream = event.streams[0];
             showRemoteVideo();
         };
         
-        // Создаем offer
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
         
-        // Отправляем offer через WebSocket
         if (socket) {
             socket.emit('callOffer', {
                 callId: currentCallId,
@@ -1848,11 +1997,9 @@ function showRemoteVideo() {
 
 function showIncomingCall(data) {
     if (confirm(`Входящий звонок от ${data.fromName || 'Пользователя'}`)) {
-        // Принимаем звонок
         currentCallId = data.callId;
         callType = data.type || 'audio';
         
-        // Отвечаем на звонок
         if (socket) {
             socket.emit('callAnswer', {
                 callId: data.callId,
@@ -1860,10 +2007,8 @@ function showIncomingCall(data) {
             });
         }
         
-        // Запускаем WebRTC
         startWebRTC(data.from);
     } else {
-        // Отклоняем звонок
         if (socket) {
             socket.emit('callAnswer', {
                 callId: data.callId,
