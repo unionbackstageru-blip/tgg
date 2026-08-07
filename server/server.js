@@ -460,7 +460,6 @@ app.post('/api/messages/delete', async (req, res) => {
     }
 });
 
-// ===== РЕАКЦИИ =====
 app.get('/api/messages/reactions/:messageId', async (req, res) => {
     try {
         const reactions = await db.getReactions(req.params.messageId);
@@ -613,7 +612,6 @@ app.post('/api/drafts', async (req, res) => {
 
 // ===== НОВЫЕ РОУТЫ ДЛЯ ФУНКЦИЙ =====
 
-// Выход из чата
 app.post('/api/chat/leave', async (req, res) => {
     try {
         const { chatId, userId } = req.body;
@@ -635,7 +633,6 @@ app.post('/api/chat/leave', async (req, res) => {
     }
 });
 
-// Установка обоев
 app.post('/api/chat/wallpaper', async (req, res) => {
     try {
         const { chatId, wallpaper } = req.body;
@@ -647,7 +644,6 @@ app.post('/api/chat/wallpaper', async (req, res) => {
     }
 });
 
-// Отключение уведомлений
 app.post('/api/chat/mute', async (req, res) => {
     try {
         const { chatId, userId, until } = req.body;
@@ -659,7 +655,6 @@ app.post('/api/chat/mute', async (req, res) => {
     }
 });
 
-// Удаление сообщения у всех
 app.post('/api/messages/delete-for-everyone', async (req, res) => {
     try {
         const { messageId } = req.body;
@@ -671,7 +666,6 @@ app.post('/api/messages/delete-for-everyone', async (req, res) => {
     }
 });
 
-// Удаление сообщения только у себя
 app.post('/api/messages/delete-for-me', async (req, res) => {
     try {
         const { messageId, userId } = req.body;
@@ -868,65 +862,31 @@ io.on('connection', (socket) => {
         }
     });
     
-    socket.on('callStart', async (data) => {
-        try {
-            const { from, to, type } = data;
-            const call = await db.createCall({
-                id: Date.now().toString(),
-                from_user: from,
-                to_user: to,
-                type: type || 'audio',
-                status: 'ringing',
-                started_at: new Date().toISOString()
+    // ===== ЗВОНКИ (WebRTC) =====
+    socket.on('callOffer', (data) => {
+        const { callId, to, from, offer, type } = data;
+        const toSocket = onlineUsers.get(to);
+        if (toSocket) {
+            db.getUserById(from).then(user => {
+                io.to(toSocket).emit('incomingCall', {
+                    callId,
+                    from,
+                    fromName: user ? user.name : 'Пользователь',
+                    offer,
+                    type
+                });
             });
-            const toSocket = onlineUsers.get(to);
-            if (toSocket) {
-                io.to(toSocket).emit('incomingCall', { call, from });
-            }
-        } catch (error) {
-            console.error('Call start error:', error);
         }
     });
-    
-    socket.on('callAnswer', async (data) => {
-        try {
-            const { callId, answer } = data;
-            const status = answer ? 'connected' : 'declined';
-            await db.updateCallStatus(callId, status);
-            const call = await db.getQuery('SELECT * FROM calls WHERE id = ?', [callId]);
-            if (call) {
-                const fromSocket = onlineUsers.get(call.from_user);
-                if (fromSocket) {
-                    io.to(fromSocket).emit('callAnswer', { callId, answer });
-                }
-                const toSocket = onlineUsers.get(call.to_user);
-                if (toSocket) {
-                    io.to(toSocket).emit('callAnswer', { callId, answer });
-                }
-            }
-        } catch (error) {
-            console.error('Call answer error:', error);
-        }
+
+    socket.on('callAnswer', (data) => {
+        const { callId, answer } = data;
+        io.emit('callAnswer', { callId, answer });
     });
-    
-    socket.on('callEnd', async (data) => {
-        try {
-            const { callId, duration } = data;
-            await db.updateCallStatus(callId, 'ended', new Date().toISOString(), duration || 0);
-            const call = await db.getQuery('SELECT * FROM calls WHERE id = ?', [callId]);
-            if (call) {
-                const fromSocket = onlineUsers.get(call.from_user);
-                if (fromSocket) {
-                    io.to(fromSocket).emit('callEnd', { callId });
-                }
-                const toSocket = onlineUsers.get(call.to_user);
-                if (toSocket) {
-                    io.to(toSocket).emit('callEnd', { callId });
-                }
-            }
-        } catch (error) {
-            console.error('Call end error:', error);
-        }
+
+    socket.on('callEnd', (data) => {
+        const { callId } = data;
+        io.emit('callEnd', { callId });
     });
     
     socket.on('disconnect', async () => {

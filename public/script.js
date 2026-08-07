@@ -439,7 +439,7 @@ function connectSocket(userId) {
         }
     });
 
-    // ===== СОБЫТИЯ ЗВОНКОВ =====
+    // ===== ЗВОНКИ =====
     socket.on('incomingCall', (data) => {
         showIncomingCall(data);
     });
@@ -449,7 +449,7 @@ function connectSocket(userId) {
     });
 
     socket.on('callEnd', (data) => {
-        endCall(data);
+        endCall();
     });
 }
 
@@ -845,6 +845,15 @@ async function openChat(chatId) {
     if (chat.type === 'private' && chat.participants) {
         const other = chat.participants.find(p => p.user_id !== currentUser.id);
         currentChatUser = other ? other.user_id : null;
+        // Загружаем аватарку пользователя для шапки
+        if (currentChatUser) {
+            try {
+                const user = await api.getUserProfile(currentChatUser);
+                if (user && user.avatar) {
+                    chat.avatar = user.avatar;
+                }
+            } catch (e) {}
+        }
     } else {
         currentChatUser = null;
     }
@@ -852,11 +861,13 @@ async function openChat(chatId) {
     document.getElementById('chatName').textContent = name;
     updateChatStatus();
     
-    // Обновляем аватар в шапке
+    // ===== ОБНОВЛЯЕМ АВАТАРКУ В ШАПКЕ =====
     const avatarText = document.getElementById('chatAvatarText');
     const avatarImg = document.getElementById('chatAvatarImg');
-    if (avatar && avatar.startsWith('http')) {
-        avatarImg.src = avatar;
+    const chatAvatar = chat.avatar || null;
+    
+    if (chatAvatar && chatAvatar.startsWith('http')) {
+        avatarImg.src = chatAvatar;
         avatarImg.style.display = 'block';
         avatarText.style.display = 'none';
     } else {
@@ -893,7 +904,7 @@ async function openChat(chatId) {
     }
 }
 
-// ===== РЕНДЕР СООБЩЕНИЙ (С АВАТАРКАМИ) =====
+// ===== РЕНДЕР СООБЩЕНИЙ =====
 
 async function renderMessages(chatId) {
     const area = document.getElementById('messagesArea');
@@ -949,12 +960,12 @@ async function renderMessages(chatId) {
         const time = formatTime(msg.created_at);
         let content = '';
         
-        // Аватарка для received сообщений
+        // Аватарка для received сообщений (с правильным отступом)
         if (!isSent && showAvatar) {
             const avatarLetter = msg.sender_id ? msg.sender_id.charAt(0).toUpperCase() : 'U';
             content += `
-                <div class="message-avatar" style="position:absolute;bottom:-4px;left:-32px;width:28px;height:28px;border-radius:50%;background:#3a3a3a;overflow:hidden;border:2px solid #1a1a1a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;">
-                    ${senderAvatar ? `<img src="${senderAvatar}" style="width:100%;height:100%;object-fit:cover;">` : avatarLetter}
+                <div class="message-avatar">
+                    ${senderAvatar ? `<img src="${senderAvatar}" onerror="this.style.display='none'">` : avatarLetter}
                 </div>
             `;
         }
@@ -1305,6 +1316,7 @@ async function loadUserProfile(userId) {
         document.getElementById('profileViewStatus').textContent = user.online ? '🟢 онлайн' : '⚫ офлайн';
         document.getElementById('profileViewJoined').textContent = 'В сети с ' + new Date(user.created_at).toLocaleDateString('ru-RU');
         
+        // ===== ОБНОВЛЯЕМ АВАТАРКУ В ПРОФИЛЕ =====
         const avatarText = document.getElementById('profileViewAvatarText');
         const avatarImg = document.getElementById('profileViewAvatar');
         
@@ -1780,7 +1792,6 @@ async function startWebRTC(userId) {
 }
 
 function showCallUI() {
-    // Создаем или показываем UI звонка
     let callUI = document.getElementById('callUI');
     if (!callUI) {
         callUI = document.createElement('div');
@@ -1819,7 +1830,6 @@ function showCallUI() {
         document.body.appendChild(callUI);
     }
     
-    // Показываем локальное видео
     const localVideo = document.getElementById('localVideo');
     if (localVideo && localStream) {
         localVideo.srcObject = localStream;
@@ -1865,10 +1875,8 @@ function showIncomingCall(data) {
 
 function handleCallAnswer(data) {
     if (data.answer) {
-        // Собеседник принял звонок
         document.getElementById('callStatus').textContent = 'Соединение...';
     } else {
-        // Собеседник отклонил звонок
         endCall();
     }
 }
@@ -1890,7 +1898,6 @@ async function endCall() {
     
     isCallActive = false;
     
-    // Удаляем UI звонка
     const callUI = document.getElementById('callUI');
     if (callUI) {
         callUI.style.display = 'none';
